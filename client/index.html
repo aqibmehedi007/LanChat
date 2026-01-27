@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>OfficeMesh RTC – Office WebRTC Chat & File Share</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Socket.IO client from CDN -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <div class="app">
+    <header class="app-header">
+      <h1>OfficeMesh RTC</h1>
+      <p>Secure room-based chat, calls & file sharing (P2P)</p>
+    </header>
+
+    <section class="connection-panel">
+      <div class="field">
+        <label for="room-input">Room ID</label>
+        <input id="room-input" type="text" placeholder="e.g. team-standup" />
+      </div>
+      <div class="field">
+        <label for="name-input">Your name</label>
+        <input id="name-input" type="text" placeholder="e.g. Khalid" />
+      </div>
+      <button id="join-btn">Join room</button>
+      <span id="status" class="status">Not connected</span>
+    </section>
+
+    <main class="main-layout">
+      <section class="video-panel">
+        <div class="video-wrapper">
+          <h2>Your video</h2>
+          <video id="localVideo" autoplay playsinline muted></video>
+        </div>
+        <div class="video-wrapper">
+          <h2>Remote video</h2>
+          <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+        <div class="video-actions">
+          <button id="start-call-btn" disabled>Start camera & mic</button>
+          <button id="hangup-btn" disabled>Hang up</button>
+        </div>
+      </section>
+
+      <section class="sidebar">
+        <div class="chat-panel">
+          <h2>Chat</h2>
+          <div id="chat-log" class="chat-log"></div>
+          <div class="chat-input-row">
+            <input id="chat-input" type="text" placeholder="Type a message and press Enter" />
+            <button id="send-chat-btn">Send</button>
+          </div>
+        </div>
+
+        <div class="file-panel">
+          <h2>File sharing</h2>
+          <p class="hint">Files go directly peer‑to‑peer over WebRTC.</p>
+          <input id="file-input" type="file" />
+          <button id="send-file-btn">Send file</button>
+          <div id="file-status" class="file-status"></div>
+          <div id="received-files" class="received-files"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+
+</html>
