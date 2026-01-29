@@ -82,7 +82,14 @@ async def handle_info(request: web.Request) -> web.Response:
     GET /info
     Returns device information for peer discovery.
     The Chrome extension calls this endpoint when scanning LAN IPs.
+
+    Logging:
+    - Remote IP making the request
+    - User-Agent header (if present)
     """
+    remote = request.remote or "unknown"
+    user_agent = request.headers.get("User-Agent", "unknown")
+    print(f"[http] /info from {remote} ua={user_agent!r}")
     return web.json_response({
         "deviceId": device_config["deviceId"],
         "displayName": device_config["displayName"],
@@ -100,7 +107,12 @@ async def handle_set_name(request: web.Request) -> web.Response:
     POST /set-name
     Sets the display name for this device.
     Body: { "name": "Your Name" }
+
+    Logging:
+    - Remote IP
+    - New name (truncated) on success
     """
+    remote = request.remote or "unknown"
     try:
         data = await request.json()
         name = data.get("name", "").strip()

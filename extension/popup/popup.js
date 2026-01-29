@@ -1,11 +1,14 @@
 /**
  * OfficeMesh Popup Script
- * 
+ *
  * Handles:
  * - Peer list display and management
  * - WebRTC chat connections
  * - Settings management
  * - UI state and navigation
+ *
+ * Socket.IO is loaded via a separate `<script>` tag in `popup.html`,
+ * which exposes the global `io` function used below.
  */
 
 // DOM Elements

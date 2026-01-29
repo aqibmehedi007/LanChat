@@ -1,6 +1,0 @@
-office_transfer_python/
-├─ server.py         # Python signaling server
-├─ client/
-│  ├─ index.html     # Frontend
-│  ├─ style.css
-│  └─ main.js

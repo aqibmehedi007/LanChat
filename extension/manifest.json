@@ -36,6 +36,6 @@
   ],
   
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src http://* https://* ws://* wss://*"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src *"
   }
 }
