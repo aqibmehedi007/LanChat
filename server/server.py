@@ -35,6 +35,11 @@ sio.attach(app)
 rooms: dict[str, set[str]] = {}  # room_id -> set[sid]
 room_initiator: dict[str, str] = {}  # room_id -> sid that should create offer
 
+# Peer registry - tracks online extensions (not chat connections)
+# deviceId -> {deviceId, displayName, ip, lastSeen, sid}
+online_peers: dict[str, dict] = {}
+sid_to_device: dict[str, str] = {}  # sid -> deviceId for disconnect cleanup
+
 
 def load_or_create_device_config() -> dict:
     """Load device config from disk or create new one with generated ID."""
@@ -156,10 +161,45 @@ async def handle_options(request: web.Request) -> web.Response:
     })
 
 
+async def handle_peers(request: web.Request) -> web.Response:
+    """
+    GET /peers
+    Returns list of currently online peers (registered extensions).
+    Query param: ?exclude=<deviceId> to exclude self from results
+    """
+    remote = request.remote or "unknown"
+    exclude_id = request.query.get("exclude", None)
+    
+    peers_list = []
+    for device_id, peer_info in online_peers.items():
+        if exclude_id and device_id == exclude_id:
+            continue
+        peers_list.append({
+            "deviceId": peer_info["deviceId"],
+            "displayName": peer_info["displayName"],
+            "ip": peer_info["ip"],
+            "lastSeen": peer_info["lastSeen"],
+        })
+    
+    print(f"[http] /peers from {remote} exclude={exclude_id} returning {len(peers_list)} peers")
+    
+    return web.json_response({
+        "peers": peers_list,
+        "serverDeviceId": device_config["deviceId"],
+        "timestamp": int(__import__("time").time() * 1000)
+    }, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    })
+
+
 # Register HTTP routes
 app.router.add_get("/info", handle_info)
+app.router.add_get("/peers", handle_peers)
 app.router.add_post("/set-name", handle_set_name)
 app.router.add_options("/info", handle_options)
+app.router.add_options("/peers", handle_options)
 app.router.add_options("/set-name", handle_options)
 
 
@@ -170,7 +210,45 @@ app.router.add_options("/set-name", handle_options)
 @sio.event
 async def connect(sid, environ):
     """Handle new Socket.IO connection."""
-    print(f"[connect] User connected: {sid}")
+    # Extract client IP from environ
+    client_ip = environ.get("REMOTE_ADDR", "unknown")
+    # Store IP in session for later use
+    await sio.save_session(sid, {"ip": client_ip})
+    print(f"[connect] User connected: {sid} from {client_ip}")
+
+
+@sio.event
+async def register_peer(sid, data):
+    """
+    Register an extension as an online peer.
+    
+    Data: {deviceId: string, displayName: string}
+    
+    This allows the server to track which extensions are online
+    and provide the peer list via /peers endpoint.
+    """
+    device_id = data.get("deviceId")
+    display_name = data.get("displayName", "Anonymous")
+    
+    if not device_id:
+        print(f"[register_peer] {sid} missing deviceId, ignoring")
+        return
+    
+    session = await sio.get_session(sid)
+    client_ip = session.get("ip", "unknown")
+    
+    import time
+    online_peers[device_id] = {
+        "deviceId": device_id,
+        "displayName": display_name,
+        "ip": client_ip,
+        "lastSeen": int(time.time() * 1000),
+        "sid": sid
+    }
+    sid_to_device[sid] = device_id
+    
+    print(f"[register_peer] {sid} registered as {device_id} ({display_name}) from {client_ip}")
+    print(f"[register_peer] Online peers: {len(online_peers)}")
 
 
 @sio.event
@@ -188,8 +266,10 @@ async def join_room(sid, room: str):
 
     rooms[room].add(sid)
 
-    # Save room on the session for later events
-    await sio.save_session(sid, {"room": room})
+    # Save room on the session for later events (preserve existing session data)
+    session = await sio.get_session(sid)
+    session["room"] = room
+    await sio.save_session(sid, session)
 
     if room not in room_initiator:
         room_initiator[room] = sid
@@ -229,9 +309,16 @@ async def signal(sid, data):
 @sio.event
 async def disconnect(sid):
     """
-    Remove user from rooms on disconnect.
+    Remove user from rooms and peer registry on disconnect.
     """
     print(f"[disconnect] {sid} disconnected")
+
+    # Remove from peer registry
+    device_id = sid_to_device.pop(sid, None)
+    if device_id:
+        online_peers.pop(device_id, None)
+        print(f"[disconnect] {sid} unregistered peer {device_id}")
+        print(f"[disconnect] Online peers: {len(online_peers)}")
 
     session = await sio.get_session(sid)
     room = session.get("room") if session else None
@@ -264,8 +351,9 @@ def main():
     print(f"Starting server on port {PORT}...")
     print()
     print("Endpoints:")
-    print(f"  GET  http://localhost:{PORT}/info     - Device info for discovery")
-    print(f"  POST http://localhost:{PORT}/set-name - Set display name")
+    print(f"  GET  http://localhost:{PORT}/info      - Device info for discovery")
+    print(f"  GET  http://localhost:{PORT}/peers     - List online peers")
+    print(f"  POST http://localhost:{PORT}/set-name  - Set display name")
     print(f"  WS   http://localhost:{PORT}/socket.io - WebRTC signaling")
     print()
     

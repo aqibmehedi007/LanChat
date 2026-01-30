@@ -138,7 +138,7 @@ async function handleStartScan(subnet) {
 }
 
 /**
- * Handle quick scan (check known peers only)
+ * Handle quick scan (fetch fresh peer lists from known servers)
  */
 async function handleQuickScan() {
   if (isScanning) {
@@ -150,23 +150,63 @@ async function handleQuickScan() {
   const existingPeers = await loadPeers();
 
   try {
+    // Collect known server IPs from existing peers and stored signaling server
+    const serverIPs = new Set();
+    
+    // Get stored signaling server
+    const stored = await chrome.storage.local.get(["signalingServerUrl"]);
+    if (stored.signalingServerUrl) {
+      try {
+        const url = new URL(stored.signalingServerUrl);
+        serverIPs.add(url.hostname);
+      } catch {}
+    }
+    
+    // Get server IPs from known peers
+    for (const peer of Object.values(existingPeers)) {
+      if (peer.serverIp) {
+        serverIPs.add(peer.serverIp);
+      }
+    }
+
+    const foundPeers = {};
+
+    // Fetch peer lists from all known servers
+    for (const serverIp of serverIPs) {
+      const serverPeers = await fetchPeersFromServer(serverIp, deviceId);
+      
+      for (const peer of serverPeers) {
+        if (peer.deviceId === deviceId) continue;
+        
+        if (!foundPeers[peer.deviceId] || peer.lastSeen > foundPeers[peer.deviceId].lastSeen) {
+          foundPeers[peer.deviceId] = peer;
+        }
+      }
+    }
+
+    // Merge: update found peers as online, mark others as offline
     const updatedPeers = {};
     
-    for (const peer of Object.values(existingPeers)) {
-      const result = await scanSingleIP(peer.ip);
-      
-      if (result && result.deviceId !== deviceId) {
-        updatedPeers[result.deviceId] = {
+    for (const [id, peer] of Object.entries(existingPeers)) {
+      if (foundPeers[id]) {
+        updatedPeers[id] = {
           ...peer,
-          ...result,
-          online: true,
+          ...foundPeers[id],
+          customName: peer.customName, // Preserve custom name
         };
       } else {
-        updatedPeers[peer.deviceId] = {
+        updatedPeers[id] = {
           ...peer,
           online: false,
           lastChecked: Date.now(),
         };
+      }
+    }
+    
+    // Add any newly discovered peers
+    for (const [id, peer] of Object.entries(foundPeers)) {
+      if (!updatedPeers[id]) {
+        updatedPeers[id] = peer;
       }
     }
 
@@ -197,6 +237,7 @@ async function performScan(subnet) {
   console.log(`[OfficeMesh] Starting scan of ${targetSubnet}.1-255`);
 
   try {
+    const foundServers = [];
     const foundPeers = {};
     const allIPs = [];
 
@@ -204,14 +245,15 @@ async function performScan(subnet) {
       allIPs.push(`${targetSubnet}.${i}`);
     }
 
-    // Process in batches
+    // Phase 1: Find signaling servers
     for (let i = 0; i < allIPs.length; i += BATCH_SIZE) {
       const batch = allIPs.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(batch.map((ip) => scanSingleIP(ip)));
 
       for (const result of results) {
-        if (result && result.deviceId !== deviceId) {
-          foundPeers[result.deviceId] = result;
+        if (result) {
+          foundServers.push(result);
+          console.log(`[OfficeMesh] Found server at ${result.ip}`);
         }
       }
 
@@ -221,7 +263,33 @@ async function performScan(subnet) {
         scanned: Math.min(i + BATCH_SIZE, allIPs.length),
         total: allIPs.length,
         found: Object.keys(foundPeers).length,
+        phase: "servers",
       }).catch(() => {}); // Ignore if popup is closed
+    }
+
+    console.log(`[OfficeMesh] Found ${foundServers.length} signaling server(s)`);
+
+    // Phase 2: Fetch peer lists from all discovered servers
+    for (const server of foundServers) {
+      const serverPeers = await fetchPeersFromServer(server.ip, deviceId);
+      console.log(`[OfficeMesh] Server ${server.ip} has ${serverPeers.length} registered peer(s)`);
+      
+      for (const peer of serverPeers) {
+        // Skip self
+        if (peer.deviceId === deviceId) continue;
+        
+        // Add or update peer (use latest if seen on multiple servers)
+        if (!foundPeers[peer.deviceId] || peer.lastSeen > foundPeers[peer.deviceId].lastSeen) {
+          foundPeers[peer.deviceId] = peer;
+        }
+      }
+    }
+
+    // Save the first server found as our signaling server
+    let signalingServerUrl = null;
+    if (foundServers.length > 0) {
+      signalingServerUrl = `http://${foundServers[0].ip}:${SCAN_PORT}`;
+      await chrome.storage.local.set({ signalingServerUrl });
     }
 
     // Merge with existing peers
@@ -231,13 +299,15 @@ async function performScan(subnet) {
     const onlineCount = Object.values(mergedPeers).filter((p) => p.online).length;
     updateBadge(onlineCount);
 
-    console.log(`[OfficeMesh] Scan complete: found ${onlineCount} online peers`);
+    console.log(`[OfficeMesh] Scan complete: found ${onlineCount} online peer(s) on ${foundServers.length} server(s)`);
 
     return {
       success: true,
       peers: mergedPeers,
       foundCount: Object.keys(foundPeers).length,
       onlineCount,
+      serversFound: foundServers.length,
+      signalingServerUrl,
     };
   } catch (error) {
     console.error("[OfficeMesh] Scan error:", error);
@@ -268,7 +338,8 @@ async function handleUpdateSettings(newSettings) {
 }
 
 /**
- * Scan a single IP for OfficeMesh server
+ * Scan a single IP for OfficeMesh signaling server
+ * Returns server info if found (NOT a peer)
  */
 async function scanSingleIP(ip) {
   const url = `http://${ip}:${SCAN_PORT}/info`;
@@ -291,17 +362,51 @@ async function scanSingleIP(ip) {
       return null;
     }
 
+    // Return server info (not a peer)
     return {
       ip,
-      deviceId: data.deviceId,
-      displayName: data.displayName || "Anonymous",
+      serverDeviceId: data.deviceId,
+      serverName: data.displayName || "OfficeMesh Server",
       version: data.version || "unknown",
-      lastSeen: Date.now(),
-      online: true,
     };
   } catch {
     clearTimeout(timeoutId);
     return null;
+  }
+}
+
+/**
+ * Fetch list of online peers from a signaling server
+ */
+async function fetchPeersFromServer(serverIp, excludeDeviceId) {
+  const url = `http://${serverIp}:${SCAN_PORT}/peers?exclude=${encodeURIComponent(excludeDeviceId || "")}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SCAN_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+
+    // Transform to peer format with serverIp
+    return (data.peers || []).map(peer => ({
+      ip: peer.ip,
+      deviceId: peer.deviceId,
+      displayName: peer.displayName || "Anonymous",
+      lastSeen: peer.lastSeen || Date.now(),
+      online: true,
+      serverIp: serverIp,
+    }));
+  } catch {
+    clearTimeout(timeoutId);
+    return [];
   }
 }
 

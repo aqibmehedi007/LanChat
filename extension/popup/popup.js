@@ -49,12 +49,16 @@ let peers = {};
 let settings = {};
 let myDeviceId = null;
 let currentPeer = null;
+let signalingServerUrl = null; // URL of the signaling server we're registered with
 
 // WebRTC state
 let socket = null;
 let peerConnection = null;
 let dataChannel = null;
 let isInitiator = false;
+
+// Presence registration socket (kept alive while popup is open)
+let presenceSocket = null;
 
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -77,6 +81,9 @@ async function init() {
   subnetInput.value = settings.subnet || "192.168.1";
   autoScanInterval.value = String(settings.autoScanInterval || 30);
 
+  // Load signaling server URL from storage
+  signalingServerUrl = await getSignalingServerUrl();
+
   // Load peers
   peers = await loadPeers();
   renderPeers();
@@ -87,7 +94,79 @@ async function init() {
   // Listen for scan progress from background
   chrome.runtime.onMessage.addListener(handleBackgroundMessage);
 
+  // Connect to signaling server and register presence
+  if (signalingServerUrl) {
+    connectToSignalingServer(signalingServerUrl);
+  }
+
   console.log("[Popup] Initialized with", Object.keys(peers).length, "cached peers");
+}
+
+/**
+ * Get saved signaling server URL from storage
+ */
+async function getSignalingServerUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["signalingServerUrl"], (result) => {
+      resolve(result.signalingServerUrl || null);
+    });
+  });
+}
+
+/**
+ * Save signaling server URL to storage
+ */
+async function saveSignalingServerUrl(url) {
+  signalingServerUrl = url;
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ signalingServerUrl: url }, resolve);
+  });
+}
+
+/**
+ * Connect to a signaling server and register our presence
+ */
+function connectToSignalingServer(serverUrl) {
+  if (presenceSocket) {
+    presenceSocket.disconnect();
+  }
+
+  console.log("[Presence] Connecting to signaling server:", serverUrl);
+
+  presenceSocket = io(serverUrl, {
+    transports: ["websocket", "polling"],
+    timeout: 5000,
+  });
+
+  presenceSocket.on("connect", () => {
+    console.log("[Presence] Connected to signaling server");
+    // Register ourselves as an online peer
+    presenceSocket.emit("register_peer", {
+      deviceId: myDeviceId,
+      displayName: settings.displayName || "Anonymous",
+    });
+    updateStatusIndicator(true);
+  });
+
+  presenceSocket.on("connect_error", (error) => {
+    console.error("[Presence] Connection error:", error);
+    updateStatusIndicator(false);
+  });
+
+  presenceSocket.on("disconnect", () => {
+    console.log("[Presence] Disconnected from signaling server");
+    updateStatusIndicator(false);
+  });
+}
+
+/**
+ * Update the status indicator in the header
+ */
+function updateStatusIndicator(connected) {
+  if (statusIndicator) {
+    statusIndicator.classList.toggle("connected", connected);
+    statusIndicator.title = connected ? "Connected to signaling server" : "Not connected";
+  }
 }
 
 function setupEventListeners() {
@@ -243,7 +322,15 @@ async function handleFullScan() {
       peers = result.peers;
       await savePeers(peers);
       renderPeers();
-      progressText.textContent = `Found ${result.foundCount} peer(s)`;
+      
+      // Connect to the signaling server if found
+      if (result.signalingServerUrl) {
+        await saveSignalingServerUrl(result.signalingServerUrl);
+        connectToSignalingServer(result.signalingServerUrl);
+      }
+      
+      const serverMsg = result.serversFound ? ` (${result.serversFound} server)` : "";
+      progressText.textContent = `Found ${result.foundCount} peer(s)${serverMsg}`;
     } else {
       progressText.textContent = result.error || "Scan failed";
     }
@@ -327,9 +414,18 @@ async function connectToPeer(peer) {
   addSystemMessage("Connecting to peer...");
 
   try {
-    // Connect to peer's signaling server
-    const signalingUrl = `http://${peer.ip}:5000`;
-    socket = io(signalingUrl, {
+    // Use the signaling server where the peer is registered
+    // Both peers must connect to the SAME server to meet in the room
+    const serverIp = peer.serverIp || (signalingServerUrl ? new URL(signalingServerUrl).hostname : null);
+    
+    if (!serverIp) {
+      throw new Error("No signaling server available. Try scanning first.");
+    }
+    
+    const serverUrl = `http://${serverIp}:5000`;
+    console.log(`[Chat] Connecting to signaling server: ${serverUrl}`);
+    
+    socket = io(serverUrl, {
       transports: ["websocket", "polling"],
       timeout: 5000,
     });

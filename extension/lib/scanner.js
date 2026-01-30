@@ -16,7 +16,7 @@ const SCAN_END = 255;
 /**
  * Scan a single IP address for OfficeMesh signaling server
  * @param {string} ip - Full IP address to scan (e.g., "192.168.2.45")
- * @returns {Promise<object|null>} Peer info if found, null otherwise
+ * @returns {Promise<object|null>} Server info if found, null otherwise
  */
 async function scanSingleIP(ip) {
   const url = `http://${ip}:${SCAN_PORT}/info`;
@@ -45,18 +45,61 @@ async function scanSingleIP(ip) {
       return null;
     }
 
+    // Return server info (not as a peer, but as a discovered server)
     return {
       ip: ip,
-      deviceId: data.deviceId,
-      displayName: data.displayName || "Anonymous",
+      serverDeviceId: data.deviceId,
+      serverName: data.displayName || "OfficeMesh Server",
       version: data.version || "unknown",
-      lastSeen: Date.now(),
-      online: true,
     };
   } catch (error) {
     clearTimeout(timeoutId);
     // Silently ignore errors (timeout, network error, etc.)
     return null;
+  }
+}
+
+/**
+ * Fetch the list of online peers from a signaling server
+ * @param {string} serverIp - IP address of the signaling server
+ * @param {string} excludeDeviceId - Device ID to exclude (self)
+ * @returns {Promise<object[]>} Array of peer objects
+ */
+async function fetchPeersFromServer(serverIp, excludeDeviceId) {
+  const url = `http://${serverIp}:${SCAN_PORT}/peers?exclude=${encodeURIComponent(excludeDeviceId || "")}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SCAN_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    
+    // Transform server response to peer format
+    return (data.peers || []).map(peer => ({
+      ip: peer.ip,
+      deviceId: peer.deviceId,
+      displayName: peer.displayName || "Anonymous",
+      lastSeen: peer.lastSeen || Date.now(),
+      online: true,
+      serverIp: serverIp, // Track which server this peer is registered with
+    }));
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error(`[Scanner] Failed to fetch peers from ${serverIp}:`, error);
+    return [];
   }
 }
 
@@ -78,28 +121,31 @@ async function scanBatch(ips, onProgress) {
 }
 
 /**
- * Scan the entire subnet for OfficeMesh peers
+ * Scan the entire subnet for OfficeMesh signaling servers,
+ * then fetch the list of online peers from each server.
  * @param {string} subnet - Base subnet (e.g., "192.168.2")
  * @param {object} options - Scan options
  * @param {function} options.onProgress - Progress callback (scanned, total, foundSoFar)
  * @param {function} options.onPeerFound - Called when a peer is found
+ * @param {function} options.onServerFound - Called when a server is found
  * @param {string} options.excludeDeviceId - Device ID to exclude (self)
- * @returns {Promise<object>} Scan results with peers map
+ * @returns {Promise<object>} Scan results with peers map and servers list
  */
 export async function scanSubnet(subnet, options = {}) {
-  const { onProgress, onPeerFound, excludeDeviceId } = options;
+  const { onProgress, onPeerFound, onServerFound, excludeDeviceId } = options;
 
   const allIPs = [];
   for (let i = SCAN_START; i <= SCAN_END; i++) {
     allIPs.push(`${subnet}.${i}`);
   }
 
+  const servers = [];
   const peers = {};
   let scannedCount = 0;
   const totalCount = allIPs.length;
   const startTime = Date.now();
 
-  // Process in batches
+  // Phase 1: Find signaling servers
   for (let i = 0; i < allIPs.length; i += BATCH_SIZE) {
     const batch = allIPs.slice(i, i + BATCH_SIZE);
 
@@ -110,17 +156,32 @@ export async function scanSubnet(subnet, options = {}) {
       }
     });
 
-    // Add found peers
-    for (const peer of found) {
+    // Collect found servers
+    for (const server of found) {
+      servers.push(server);
+      if (onServerFound) {
+        onServerFound(server);
+      }
+    }
+  }
+
+  // Phase 2: Fetch peer lists from all discovered servers
+  for (const server of servers) {
+    const serverPeers = await fetchPeersFromServer(server.ip, excludeDeviceId);
+    
+    for (const peer of serverPeers) {
       // Skip self
       if (excludeDeviceId && peer.deviceId === excludeDeviceId) {
         continue;
       }
 
-      peers[peer.deviceId] = peer;
+      // Add or update peer (if same peer registered on multiple servers, use latest)
+      if (!peers[peer.deviceId] || peer.lastSeen > peers[peer.deviceId].lastSeen) {
+        peers[peer.deviceId] = peer;
 
-      if (onPeerFound) {
-        onPeerFound(peer);
+        if (onPeerFound) {
+          onPeerFound(peer);
+        }
       }
     }
   }
@@ -129,8 +190,10 @@ export async function scanSubnet(subnet, options = {}) {
 
   return {
     peers,
+    servers,
     scannedCount: totalCount,
     foundCount: Object.keys(peers).length,
+    serversFound: servers.length,
     durationMs: duration,
     subnet,
     timestamp: Date.now(),
@@ -138,36 +201,46 @@ export async function scanSubnet(subnet, options = {}) {
 }
 
 /**
- * Quick scan - check only previously known IPs
- * @param {object} knownPeers - Map of deviceId -> peer info
+ * Quick scan - fetch fresh peer lists from known servers
+ * @param {object} knownPeers - Map of deviceId -> peer info (used to get server IPs)
  * @param {object} options - Scan options
  * @returns {Promise<object>} Updated peers map with online status
  */
 export async function quickScan(knownPeers, options = {}) {
-  const { onProgress, excludeDeviceId } = options;
+  const { onProgress, excludeDeviceId, knownServers = [] } = options;
 
-  const ips = Object.values(knownPeers).map((p) => p.ip);
+  // Collect unique server IPs from known peers and known servers
+  const serverIPs = new Set(knownServers);
+  for (const peer of Object.values(knownPeers)) {
+    if (peer.serverIp) {
+      serverIPs.add(peer.serverIp);
+    }
+  }
+
   const updatedPeers = {};
   let scannedCount = 0;
+  const totalServers = serverIPs.size;
 
-  for (const peer of Object.values(knownPeers)) {
-    const result = await scanSingleIP(peer.ip);
+  // Fetch peer lists from all known servers
+  for (const serverIp of serverIPs) {
+    const serverPeers = await fetchPeersFromServer(serverIp, excludeDeviceId);
     scannedCount++;
 
     if (onProgress) {
-      onProgress(scannedCount, ips.length);
+      onProgress(scannedCount, totalServers);
     }
 
-    if (result && (!excludeDeviceId || result.deviceId !== excludeDeviceId)) {
-      // Peer is online
-      updatedPeers[result.deviceId] = {
-        ...peer,
-        ...result,
-        online: true,
-      };
-    } else {
-      // Peer is offline - keep cached data but mark offline
-      updatedPeers[peer.deviceId] = {
+    for (const peer of serverPeers) {
+      if (!updatedPeers[peer.deviceId] || peer.lastSeen > updatedPeers[peer.deviceId].lastSeen) {
+        updatedPeers[peer.deviceId] = peer;
+      }
+    }
+  }
+
+  // Mark peers not found as offline
+  for (const [deviceId, peer] of Object.entries(knownPeers)) {
+    if (!updatedPeers[deviceId]) {
+      updatedPeers[deviceId] = {
         ...peer,
         online: false,
         lastChecked: Date.now(),
