@@ -44,6 +44,49 @@ const saveSettingsBtn = document.getElementById("save-settings-btn");
 
 const statusIndicator = document.getElementById("status-indicator");
 
+// Tab navigation
+const tabNav = document.getElementById("tab-nav");
+const tabBtns = document.querySelectorAll(".tab-btn");
+
+// Groups view
+const groupsView = document.getElementById("groups-view");
+const groupsList = document.getElementById("groups-list");
+const groupsEmptyState = document.getElementById("groups-empty-state");
+const refreshGroupsBtn = document.getElementById("refresh-groups-btn");
+const createGroupBtn = document.getElementById("create-group-btn");
+
+// Group chat view
+const groupChatView = document.getElementById("group-chat-view");
+const groupBackBtn = document.getElementById("group-back-btn");
+const groupChatName = document.getElementById("group-chat-name");
+const groupMemberCount = document.getElementById("group-member-count");
+const leaveGroupBtn = document.getElementById("leave-group-btn");
+const groupChatMessages = document.getElementById("group-chat-messages");
+const groupChatInput = document.getElementById("group-chat-input");
+const groupSendBtn = document.getElementById("group-send-btn");
+
+// Create group modal
+const createGroupModal = document.getElementById("create-group-modal");
+const newGroupNameInput = document.getElementById("new-group-name");
+const cancelGroupBtn = document.getElementById("cancel-group-btn");
+const confirmCreateGroupBtn = document.getElementById("confirm-create-group-btn");
+
+// Call controls
+const callBtn = document.getElementById("call-btn");
+const muteBtn = document.getElementById("mute-btn");
+const endCallBtn = document.getElementById("end-call-btn");
+const incomingCallOverlay = document.getElementById("incoming-call-overlay");
+const incomingCallName = document.getElementById("incoming-call-name");
+const acceptCallBtn = document.getElementById("accept-call-btn");
+const rejectCallBtn = document.getElementById("reject-call-btn");
+const callStatusBar = document.getElementById("call-status-bar");
+const callStatusText = document.getElementById("call-status-text");
+const callDuration = document.getElementById("call-duration");
+
+// File transfer
+const attachBtn = document.getElementById("attach-btn");
+const fileInput = document.getElementById("file-input");
+
 // State
 let peers = {};
 let settings = {};
@@ -59,6 +102,21 @@ let isInitiator = false;
 
 // Presence registration socket (kept alive while popup is open)
 let presenceSocket = null;
+
+// Audio call state
+let localStream = null;
+let callState = "idle"; // idle, calling, ringing, in-call
+let isMuted = false;
+let callStartTime = null;
+let callTimerInterval = null;
+
+// File transfer state
+const pendingFiles = new Map(); // fileId -> { name, size, mimeType, chunks: [], received: 0 }
+const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+
+// Group chat state
+let groups = [];
+let currentGroup = null;
 
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -97,6 +155,8 @@ async function init() {
   // Connect to signaling server and register presence
   if (signalingServerUrl) {
     connectToSignalingServer(signalingServerUrl);
+    // Load groups after connecting
+    setTimeout(loadGroups, 1000);
   }
 
   console.log("[Popup] Initialized with", Object.keys(peers).length, "cached peers");
@@ -157,6 +217,60 @@ function connectToSignalingServer(serverUrl) {
     console.log("[Presence] Disconnected from signaling server");
     updateStatusIndicator(false);
   });
+
+  // Group chat events
+  presenceSocket.on("group_created", (data) => {
+    console.log("[Groups] Group created:", data);
+    currentGroup = data;
+    groupChatName.textContent = data.name;
+    groupMemberCount.textContent = `${data.memberCount} online`;
+    groupChatMessages.innerHTML = "";
+    addGroupSystemMessage("You created this group");
+    showView("group-chat");
+    groupChatInput.disabled = false;
+    groupSendBtn.disabled = true;
+  });
+
+  presenceSocket.on("group_joined", (data) => {
+    console.log("[Groups] Joined group:", data);
+    currentGroup = data;
+    groupChatName.textContent = data.name;
+    groupMemberCount.textContent = `${data.memberCount} online`;
+    groupChatMessages.innerHTML = "";
+    addGroupSystemMessage("You joined the group");
+    showView("group-chat");
+    groupChatInput.disabled = false;
+    groupSendBtn.disabled = true;
+  });
+
+  presenceSocket.on("group_member_joined", (data) => {
+    console.log("[Groups] Member joined:", data);
+    if (currentGroup && currentGroup.id === data.groupId) {
+      groupMemberCount.textContent = `${data.memberCount} online`;
+      addGroupSystemMessage(`${data.displayName} joined the group`);
+    }
+  });
+
+  presenceSocket.on("group_member_left", (data) => {
+    console.log("[Groups] Member left:", data);
+    if (currentGroup && currentGroup.id === data.groupId) {
+      groupMemberCount.textContent = `${data.memberCount} online`;
+      addGroupSystemMessage(`${data.displayName} left the group`);
+    }
+  });
+
+  presenceSocket.on("group_message_received", (data) => {
+    console.log("[Groups] Message received:", data);
+    if (currentGroup && currentGroup.id === data.groupId) {
+      const isSent = data.from === (settings.displayName || "Anonymous");
+      addGroupMessage(data.text, data.from, isSent, data.ts);
+    }
+  });
+
+  presenceSocket.on("group_error", (data) => {
+    console.error("[Groups] Error:", data);
+    alert(data.error || "Group error");
+  });
 }
 
 /**
@@ -174,8 +288,27 @@ function setupEventListeners() {
   settingsBtn.addEventListener("click", () => showView("settings"));
   settingsBackBtn.addEventListener("click", () => showView("peers"));
   backBtn.addEventListener("click", () => {
+    endCall();
     disconnectFromPeer();
     showView("peers");
+  });
+
+  // Tab navigation
+  tabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      tabBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      
+      if (tab === "peers") {
+        peersView.classList.remove("hidden");
+        groupsView.classList.add("hidden");
+      } else if (tab === "groups") {
+        peersView.classList.add("hidden");
+        groupsView.classList.remove("hidden");
+        loadGroups();
+      }
+    });
   });
 
   // Scanning
@@ -197,21 +330,78 @@ function setupEventListeners() {
   chatInput.addEventListener("input", () => {
     sendBtn.disabled = !chatInput.value.trim() || !dataChannel || dataChannel.readyState !== "open";
   });
+
+  // Call controls
+  callBtn.addEventListener("click", startCall);
+  muteBtn.addEventListener("click", toggleMute);
+  endCallBtn.addEventListener("click", endCall);
+  acceptCallBtn.addEventListener("click", acceptCall);
+  rejectCallBtn.addEventListener("click", rejectCall);
+
+  // File transfer
+  attachBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", handleFileSelect);
+
+  // Groups
+  refreshGroupsBtn.addEventListener("click", loadGroups);
+  createGroupBtn.addEventListener("click", () => createGroupModal.classList.remove("hidden"));
+  cancelGroupBtn.addEventListener("click", () => {
+    createGroupModal.classList.add("hidden");
+    newGroupNameInput.value = "";
+  });
+  confirmCreateGroupBtn.addEventListener("click", createGroup);
+  
+  // Group chat
+  groupBackBtn.addEventListener("click", () => {
+    leaveGroup();
+    showView("groups");
+  });
+  leaveGroupBtn.addEventListener("click", () => {
+    leaveGroup();
+    showView("groups");
+  });
+  groupSendBtn.addEventListener("click", sendGroupMessage);
+  groupChatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendGroupMessage();
+    }
+  });
+  groupChatInput.addEventListener("input", () => {
+    groupSendBtn.disabled = !groupChatInput.value.trim() || !currentGroup;
+  });
 }
 
 // View navigation
 function showView(viewName) {
   peersView.classList.add("hidden");
+  groupsView.classList.add("hidden");
   chatView.classList.add("hidden");
+  groupChatView.classList.add("hidden");
   settingsView.classList.add("hidden");
+  
+  // Show/hide tab nav based on view
+  const showTabs = ["peers", "groups"].includes(viewName);
+  tabNav.classList.toggle("hidden", !showTabs);
 
   switch (viewName) {
     case "peers":
       peersView.classList.remove("hidden");
+      // Update tab state
+      tabBtns.forEach(b => b.classList.toggle("active", b.dataset.tab === "peers"));
+      break;
+    case "groups":
+      groupsView.classList.remove("hidden");
+      // Update tab state
+      tabBtns.forEach(b => b.classList.toggle("active", b.dataset.tab === "groups"));
       break;
     case "chat":
       chatView.classList.remove("hidden");
       chatInput.focus();
+      break;
+    case "group-chat":
+      groupChatView.classList.remove("hidden");
+      groupChatInput.focus();
       break;
     case "settings":
       settingsView.classList.remove("hidden");
@@ -464,6 +654,42 @@ async function connectToPeer(peer) {
       console.log("[Chat] Disconnected from signaling");
       chatPeerStatus.textContent = "Disconnected";
       chatPeerStatus.classList.remove("connected");
+      endCall();
+    });
+
+    // Call signaling events
+    socket.on("call_request", (data) => {
+      console.log("[Call] Incoming call from:", data.from);
+      if (callState === "idle") {
+        callState = "ringing";
+        incomingCallName.textContent = data.from || "Unknown";
+        incomingCallOverlay.classList.remove("hidden");
+      }
+    });
+
+    socket.on("call_accepted", async (data) => {
+      console.log("[Call] Call accepted");
+      if (callState === "calling") {
+        callState = "in-call";
+        updateCallUI();
+        addSystemMessage("Call connected");
+      }
+    });
+
+    socket.on("call_rejected", (data) => {
+      console.log("[Call] Call rejected");
+      if (callState === "calling") {
+        callState = "idle";
+        updateCallUI();
+        stopLocalStream();
+        addSystemMessage("Call was declined");
+      }
+    });
+
+    socket.on("call_ended", (data) => {
+      console.log("[Call] Call ended by peer");
+      endCall();
+      addSystemMessage("Call ended");
     });
   } catch (error) {
     console.error("[Chat] Connect error:", error);
@@ -550,8 +776,22 @@ function setupDataChannel(channel) {
   channel.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.type === "chat") {
-        addMessage(data.text, data.from, false, data.ts);
+      
+      switch (data.type) {
+        case "chat":
+          addMessage(data.text, data.from, false, data.ts);
+          break;
+        case "file_start":
+          handleFileStart(data);
+          break;
+        case "file_chunk":
+          handleFileChunk(data);
+          break;
+        case "file_end":
+          handleFileEnd(data);
+          break;
+        default:
+          console.warn("[Chat] Unknown message type:", data.type);
       }
     } catch {
       console.warn("[Chat] Invalid message:", event.data);
@@ -630,6 +870,520 @@ function addSystemMessage(text) {
   msg.textContent = text;
   chatMessages.appendChild(msg);
   chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// ============================================
+// Audio Calling
+// ============================================
+
+async function startCall() {
+  if (callState !== "idle" || !socket) return;
+  
+  console.log("[Call] Starting call...");
+  
+  try {
+    // Request microphone access
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    
+    // Add audio track to peer connection
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+    
+    callState = "calling";
+    updateCallUI();
+    
+    // Signal call request
+    socket.emit("call_request", {
+      from: settings.displayName || "Anonymous"
+    });
+    
+    addSystemMessage("Calling...");
+    
+    // Set up remote audio handling
+    peerConnection.ontrack = (event) => {
+      console.log("[Call] Remote track received");
+      const audio = new Audio();
+      audio.srcObject = event.streams[0];
+      audio.play().catch(e => console.error("[Call] Audio play error:", e));
+    };
+  } catch (error) {
+    console.error("[Call] Failed to start call:", error);
+    addSystemMessage("Failed to access microphone");
+    callState = "idle";
+    updateCallUI();
+  }
+}
+
+async function acceptCall() {
+  if (callState !== "ringing" || !socket) return;
+  
+  console.log("[Call] Accepting call...");
+  incomingCallOverlay.classList.add("hidden");
+  
+  try {
+    // Request microphone access
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    
+    // Add audio track to peer connection
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+    
+    callState = "in-call";
+    updateCallUI();
+    
+    // Signal call accepted
+    socket.emit("call_accepted", {});
+    
+    addSystemMessage("Call connected");
+    
+    // Set up remote audio handling
+    peerConnection.ontrack = (event) => {
+      console.log("[Call] Remote track received");
+      const audio = new Audio();
+      audio.srcObject = event.streams[0];
+      audio.play().catch(e => console.error("[Call] Audio play error:", e));
+    };
+    
+    // Renegotiate to include audio
+    if (isInitiator) {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.emit("signal", { type: "offer", sdp: peerConnection.localDescription });
+    }
+  } catch (error) {
+    console.error("[Call] Failed to accept call:", error);
+    addSystemMessage("Failed to access microphone");
+    rejectCall();
+  }
+}
+
+function rejectCall() {
+  if (callState !== "ringing" || !socket) return;
+  
+  console.log("[Call] Rejecting call...");
+  incomingCallOverlay.classList.add("hidden");
+  
+  socket.emit("call_rejected", {});
+  callState = "idle";
+  updateCallUI();
+}
+
+function endCall() {
+  if (callState === "idle") return;
+  
+  console.log("[Call] Ending call...");
+  
+  if (socket && callState !== "idle") {
+    socket.emit("call_ended", {});
+  }
+  
+  stopLocalStream();
+  incomingCallOverlay.classList.add("hidden");
+  callState = "idle";
+  updateCallUI();
+}
+
+function toggleMute() {
+  if (!localStream) return;
+  
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(track => {
+    track.enabled = !isMuted;
+  });
+  
+  muteBtn.classList.toggle("muted", isMuted);
+  muteBtn.title = isMuted ? "Unmute microphone" : "Mute microphone";
+}
+
+function stopLocalStream() {
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+  isMuted = false;
+  
+  // Stop call timer
+  if (callTimerInterval) {
+    clearInterval(callTimerInterval);
+    callTimerInterval = null;
+  }
+  callStartTime = null;
+}
+
+function updateCallUI() {
+  const isIdle = callState === "idle";
+  const isCalling = callState === "calling";
+  const isInCall = callState === "in-call";
+  
+  // Show/hide buttons
+  callBtn.classList.toggle("hidden", !isIdle);
+  muteBtn.classList.toggle("hidden", isIdle);
+  endCallBtn.classList.toggle("hidden", isIdle);
+  
+  // Call status bar
+  callStatusBar.classList.toggle("hidden", isIdle);
+  callStatusBar.classList.toggle("calling", isCalling);
+  
+  if (isCalling) {
+    callStatusText.textContent = "Calling...";
+    callDuration.textContent = "";
+  } else if (isInCall) {
+    callStatusText.textContent = "In call";
+    // Start call timer
+    callStartTime = Date.now();
+    callTimerInterval = setInterval(updateCallDuration, 1000);
+  }
+}
+
+function updateCallDuration() {
+  if (!callStartTime) return;
+  
+  const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  callDuration.textContent = `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
+// ============================================
+// File Transfer
+// ============================================
+
+function handleFileSelect(event) {
+  const files = event.target.files;
+  if (!files.length || !dataChannel || dataChannel.readyState !== "open") return;
+  
+  for (const file of files) {
+    sendFile(file);
+  }
+  
+  // Clear input
+  fileInput.value = "";
+}
+
+async function sendFile(file) {
+  const fileId = crypto.randomUUID();
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  
+  console.log(`[File] Sending ${file.name} (${formatFileSize(file.size)}) in ${totalChunks} chunks`);
+  
+  // Add file message to UI
+  const msgId = addFileMessage(file.name, file.size, true, 0);
+  
+  // Send file metadata
+  dataChannel.send(JSON.stringify({
+    type: "file_start",
+    fileId,
+    name: file.name,
+    size: file.size,
+    mimeType: file.type || "application/octet-stream",
+    totalChunks
+  }));
+  
+  // Read and send chunks
+  const reader = new FileReader();
+  let offset = 0;
+  let chunkIndex = 0;
+  
+  const readNextChunk = () => {
+    const slice = file.slice(offset, offset + CHUNK_SIZE);
+    reader.readAsDataURL(slice);
+  };
+  
+  reader.onload = () => {
+    // Extract base64 data (remove data URL prefix)
+    const base64Data = reader.result.split(",")[1];
+    
+    dataChannel.send(JSON.stringify({
+      type: "file_chunk",
+      fileId,
+      index: chunkIndex,
+      data: base64Data
+    }));
+    
+    offset += CHUNK_SIZE;
+    chunkIndex++;
+    
+    // Update progress
+    const progress = Math.round((offset / file.size) * 100);
+    updateFileProgress(msgId, Math.min(progress, 100));
+    
+    if (offset < file.size) {
+      // Small delay to prevent overwhelming the data channel
+      setTimeout(readNextChunk, 10);
+    } else {
+      // Send file complete
+      dataChannel.send(JSON.stringify({
+        type: "file_end",
+        fileId
+      }));
+      console.log(`[File] Finished sending ${file.name}`);
+    }
+  };
+  
+  readNextChunk();
+}
+
+function handleFileStart(data) {
+  console.log(`[File] Receiving ${data.name} (${formatFileSize(data.size)})`);
+  
+  pendingFiles.set(data.fileId, {
+    name: data.name,
+    size: data.size,
+    mimeType: data.mimeType,
+    totalChunks: data.totalChunks,
+    chunks: [],
+    received: 0,
+    msgId: addFileMessage(data.name, data.size, false, 0)
+  });
+}
+
+function handleFileChunk(data) {
+  const file = pendingFiles.get(data.fileId);
+  if (!file) return;
+  
+  file.chunks[data.index] = data.data;
+  file.received++;
+  
+  // Update progress
+  const progress = Math.round((file.received / file.totalChunks) * 100);
+  updateFileProgress(file.msgId, progress);
+}
+
+function handleFileEnd(data) {
+  const file = pendingFiles.get(data.fileId);
+  if (!file) return;
+  
+  console.log(`[File] Finished receiving ${file.name}`);
+  
+  // Combine chunks and create blob
+  const binaryData = file.chunks.map(chunk => {
+    const binary = atob(chunk);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  });
+  
+  const blob = new Blob(binaryData, { type: file.mimeType });
+  const url = URL.createObjectURL(blob);
+  
+  // Update UI with download button
+  completeFileMessage(file.msgId, url, file.name);
+  
+  pendingFiles.delete(data.fileId);
+}
+
+function addFileMessage(name, size, isSent, progress) {
+  const msgId = `file-${Date.now()}`;
+  const msg = document.createElement("div");
+  msg.className = `message file-message ${isSent ? "sent" : "received"}`;
+  msg.id = msgId;
+  
+  msg.innerHTML = `
+    <div class="file-message-content">
+      <div class="file-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+      </div>
+      <div class="file-info">
+        <span class="file-name">${escapeHtml(name)}</span>
+        <span class="file-size">${formatFileSize(size)}</span>
+        <div class="file-progress">
+          <div class="file-progress-fill" style="width: ${progress}%"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  chatMessages.appendChild(msg);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  return msgId;
+}
+
+function updateFileProgress(msgId, progress) {
+  const msg = document.getElementById(msgId);
+  if (!msg) return;
+  
+  const progressFill = msg.querySelector(".file-progress-fill");
+  if (progressFill) {
+    progressFill.style.width = `${progress}%`;
+  }
+}
+
+function completeFileMessage(msgId, downloadUrl, fileName) {
+  const msg = document.getElementById(msgId);
+  if (!msg) return;
+  
+  const progressEl = msg.querySelector(".file-progress");
+  if (progressEl) {
+    progressEl.remove();
+  }
+  
+  const fileInfo = msg.querySelector(".file-info");
+  if (fileInfo) {
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "btn btn-sm file-download-btn";
+    downloadBtn.textContent = "Download";
+    downloadBtn.addEventListener("click", () => {
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = fileName;
+      a.click();
+    });
+    fileInfo.appendChild(downloadBtn);
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+}
+
+// ============================================
+// Group Chat
+// ============================================
+
+async function loadGroups() {
+  if (!signalingServerUrl) {
+    console.log("[Groups] No signaling server URL");
+    return;
+  }
+  
+  try {
+    const url = new URL(signalingServerUrl);
+    const response = await fetch(`http://${url.hostname}:5000/groups`);
+    const data = await response.json();
+    
+    groups = data.groups || [];
+    renderGroups();
+  } catch (error) {
+    console.error("[Groups] Failed to load groups:", error);
+  }
+}
+
+function renderGroups() {
+  if (groups.length === 0) {
+    groupsEmptyState.classList.remove("hidden");
+    const items = groupsList.querySelectorAll(".group-item");
+    items.forEach(item => item.remove());
+    return;
+  }
+  
+  groupsEmptyState.classList.add("hidden");
+  
+  // Clear existing items
+  const existingItems = groupsList.querySelectorAll(".group-item");
+  existingItems.forEach(item => item.remove());
+  
+  // Render groups
+  for (const group of groups) {
+    const item = createGroupItem(group);
+    groupsList.appendChild(item);
+  }
+}
+
+function createGroupItem(group) {
+  const item = document.createElement("div");
+  item.className = "group-item";
+  item.dataset.groupId = group.id;
+  
+  const initial = group.name.charAt(0).toUpperCase();
+  
+  item.innerHTML = `
+    <div class="group-avatar">${initial}</div>
+    <div class="group-info">
+      <div class="group-name">${escapeHtml(group.name)}</div>
+      <div class="group-meta">${group.memberCount} member${group.memberCount !== 1 ? "s" : ""} online</div>
+    </div>
+  `;
+  
+  item.addEventListener("click", () => joinGroup(group.id));
+  
+  return item;
+}
+
+function createGroup() {
+  const name = newGroupNameInput.value.trim() || "Office Chat";
+  
+  if (!presenceSocket) {
+    alert("Not connected to server");
+    return;
+  }
+  
+  createGroupModal.classList.add("hidden");
+  newGroupNameInput.value = "";
+  
+  presenceSocket.emit("create_group", { name });
+}
+
+function joinGroup(groupId) {
+  if (!presenceSocket) {
+    alert("Not connected to server");
+    return;
+  }
+  
+  presenceSocket.emit("join_group", {
+    groupId,
+    displayName: settings.displayName || "Anonymous"
+  });
+}
+
+function leaveGroup() {
+  if (!presenceSocket || !currentGroup) return;
+  
+  presenceSocket.emit("leave_group", {
+    groupId: currentGroup.id,
+    displayName: settings.displayName || "Anonymous"
+  });
+  
+  currentGroup = null;
+  groupChatInput.disabled = true;
+  groupSendBtn.disabled = true;
+}
+
+function sendGroupMessage() {
+  const text = groupChatInput.value.trim();
+  if (!text || !presenceSocket || !currentGroup) return;
+  
+  presenceSocket.emit("group_message", {
+    groupId: currentGroup.id,
+    text,
+    from: settings.displayName || "Anonymous"
+  });
+  
+  groupChatInput.value = "";
+  groupSendBtn.disabled = true;
+}
+
+function addGroupMessage(text, from, isSent, timestamp) {
+  const msg = document.createElement("div");
+  msg.className = `message ${isSent ? "sent" : "received"}`;
+  
+  const time = formatTime(timestamp);
+  msg.innerHTML = `
+    <span class="message-sender">${escapeHtml(from)}</span>
+    ${escapeHtml(text)}
+    <span class="message-time">${time}</span>
+  `;
+  
+  groupChatMessages.appendChild(msg);
+  groupChatMessages.scrollTop = groupChatMessages.scrollHeight;
+}
+
+function addGroupSystemMessage(text) {
+  const msg = document.createElement("div");
+  msg.className = "message system";
+  msg.textContent = text;
+  groupChatMessages.appendChild(msg);
+  groupChatMessages.scrollTop = groupChatMessages.scrollHeight;
 }
 
 // Storage helpers

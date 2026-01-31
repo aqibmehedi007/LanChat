@@ -27,6 +27,12 @@
     <!-- Main content area - views switch here -->
     <main class="main">
       
+      <!-- Tab Navigation -->
+      <div class="tab-nav" id="tab-nav">
+        <button class="tab-btn active" data-tab="peers">Peers</button>
+        <button class="tab-btn" data-tab="groups">Groups</button>
+      </div>
+
       <!-- Peers List View -->
       <section class="view" id="peers-view">
         <div class="view-header">
@@ -72,6 +78,42 @@
         </div>
       </section>
 
+      <!-- Groups List View -->
+      <section class="view hidden" id="groups-view">
+        <div class="view-header">
+          <h2>Groups</h2>
+          <div class="view-actions">
+            <button class="btn btn-sm" id="refresh-groups-btn" title="Refresh groups">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+            </button>
+            <button class="btn btn-sm btn-primary" id="create-group-btn" title="Create new group">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              New
+            </button>
+          </div>
+        </div>
+
+        <!-- Groups list -->
+        <div class="groups-list" id="groups-list">
+          <div class="empty-state" id="groups-empty-state">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <p>No groups yet</p>
+            <span>Create or join a group to chat with everyone</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Chat View -->
       <section class="view hidden" id="chat-view">
         <div class="chat-header">
@@ -84,6 +126,69 @@
             <span class="chat-peer-name" id="chat-peer-name">Peer Name</span>
             <span class="chat-peer-status" id="chat-peer-status">Connecting...</span>
           </div>
+          <div class="chat-actions">
+            <!-- Call button (shown when not in call) -->
+            <button class="icon-btn call-btn" id="call-btn" title="Start voice call">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+              </svg>
+            </button>
+            <!-- Mute button (shown during call) -->
+            <button class="icon-btn mute-btn hidden" id="mute-btn" title="Mute microphone">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+            </button>
+            <!-- End call button (shown during call) -->
+            <button class="icon-btn end-call-btn hidden" id="end-call-btn" title="End call">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Incoming call overlay -->
+        <div class="incoming-call-overlay hidden" id="incoming-call-overlay">
+          <div class="incoming-call-content">
+            <div class="incoming-call-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+              </svg>
+            </div>
+            <p class="incoming-call-text">Incoming call from</p>
+            <p class="incoming-call-name" id="incoming-call-name">Unknown</p>
+            <div class="incoming-call-actions">
+              <button class="btn btn-danger" id="reject-call-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                Reject
+              </button>
+              <button class="btn btn-success" id="accept-call-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Call status bar -->
+        <div class="call-status-bar hidden" id="call-status-bar">
+          <span class="call-status-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+            </svg>
+          </span>
+          <span class="call-status-text" id="call-status-text">Calling...</span>
+          <span class="call-duration" id="call-duration">00:00</span>
         </div>
 
         <div class="chat-messages" id="chat-messages">
@@ -91,6 +196,12 @@
         </div>
 
         <div class="chat-input-area">
+          <button class="icon-btn attach-btn" id="attach-btn" title="Attach file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+            </svg>
+          </button>
+          <input type="file" id="file-input" class="hidden" multiple>
           <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off">
           <button class="btn btn-primary" id="send-btn" disabled>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -100,6 +211,59 @@
           </button>
         </div>
       </section>
+
+      <!-- Group Chat View -->
+      <section class="view hidden" id="group-chat-view">
+        <div class="chat-header">
+          <button class="icon-btn" id="group-back-btn" title="Back to groups">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m15 18-6-6 6-6"></path>
+            </svg>
+          </button>
+          <div class="chat-peer-info">
+            <span class="chat-peer-name" id="group-chat-name">Group Name</span>
+            <span class="chat-peer-status" id="group-member-count">0 online</span>
+          </div>
+          <div class="chat-actions">
+            <button class="icon-btn leave-group-btn" id="leave-group-btn" title="Leave group">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="group-chat-messages">
+          <!-- Group messages rendered here -->
+        </div>
+
+        <div class="chat-input-area">
+          <input type="text" id="group-chat-input" placeholder="Type a message..." autocomplete="off">
+          <button class="btn btn-primary" id="group-send-btn" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Create Group Modal -->
+      <div class="modal-overlay hidden" id="create-group-modal">
+        <div class="modal-content">
+          <h3>Create New Group</h3>
+          <div class="setting-group">
+            <label for="new-group-name">Group Name</label>
+            <input type="text" id="new-group-name" placeholder="Office Chat" maxlength="50">
+          </div>
+          <div class="modal-actions">
+            <button class="btn" id="cancel-group-btn">Cancel</button>
+            <button class="btn btn-primary" id="confirm-create-group-btn">Create</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Settings View -->
       <section class="view hidden" id="settings-view">

@@ -40,6 +40,11 @@ room_initiator: dict[str, str] = {}  # room_id -> sid that should create offer
 online_peers: dict[str, dict] = {}
 sid_to_device: dict[str, str] = {}  # sid -> deviceId for disconnect cleanup
 
+# Group chat registry
+# groupId -> {id, name, members: set[sid], createdAt}
+groups: dict[str, dict] = {}
+sid_to_groups: dict[str, set[str]] = {}  # sid -> set of groupIds for cleanup
+
 
 def load_or_create_device_config() -> dict:
     """Load device config from disk or create new one with generated ID."""
@@ -194,12 +199,42 @@ async def handle_peers(request: web.Request) -> web.Response:
     })
 
 
+async def handle_groups(request: web.Request) -> web.Response:
+    """
+    GET /groups
+    Returns list of active groups with member counts.
+    """
+    remote = request.remote or "unknown"
+    
+    groups_list = []
+    for group_id, group_info in groups.items():
+        groups_list.append({
+            "id": group_id,
+            "name": group_info["name"],
+            "memberCount": len(group_info["members"]),
+            "createdAt": group_info["createdAt"],
+        })
+    
+    print(f"[http] /groups from {remote} returning {len(groups_list)} groups")
+    
+    return web.json_response({
+        "groups": groups_list,
+        "timestamp": int(__import__("time").time() * 1000)
+    }, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    })
+
+
 # Register HTTP routes
 app.router.add_get("/info", handle_info)
 app.router.add_get("/peers", handle_peers)
+app.router.add_get("/groups", handle_groups)
 app.router.add_post("/set-name", handle_set_name)
 app.router.add_options("/info", handle_options)
 app.router.add_options("/peers", handle_options)
+app.router.add_options("/groups", handle_options)
 app.router.add_options("/set-name", handle_options)
 
 
@@ -306,10 +341,232 @@ async def signal(sid, data):
             await sio.emit("signal", data, to=peer_sid)
 
 
+# ------------------------------------------------------
+# Call signaling events
+# ------------------------------------------------------
+
+@sio.event
+async def call_request(sid, data):
+    """
+    Relay call request to the other peer in the room.
+    Data: {from: displayName}
+    """
+    session = await sio.get_session(sid)
+    room = session.get("room")
+    if not room:
+        print(f"[call_request] {sid} has no room; ignoring")
+        return
+    
+    print(f"[call_request] {sid} requesting call in room {room}")
+    
+    for peer_sid in rooms.get(room, set()):
+        if peer_sid != sid:
+            await sio.emit("call_request", data, to=peer_sid)
+
+
+@sio.event
+async def call_accepted(sid, data):
+    """
+    Relay call accepted to the other peer in the room.
+    """
+    session = await sio.get_session(sid)
+    room = session.get("room")
+    if not room:
+        return
+    
+    print(f"[call_accepted] {sid} accepted call in room {room}")
+    
+    for peer_sid in rooms.get(room, set()):
+        if peer_sid != sid:
+            await sio.emit("call_accepted", data, to=peer_sid)
+
+
+@sio.event
+async def call_rejected(sid, data):
+    """
+    Relay call rejected to the other peer in the room.
+    """
+    session = await sio.get_session(sid)
+    room = session.get("room")
+    if not room:
+        return
+    
+    print(f"[call_rejected] {sid} rejected call in room {room}")
+    
+    for peer_sid in rooms.get(room, set()):
+        if peer_sid != sid:
+            await sio.emit("call_rejected", data, to=peer_sid)
+
+
+@sio.event
+async def call_ended(sid, data):
+    """
+    Relay call ended to the other peer in the room.
+    """
+    session = await sio.get_session(sid)
+    room = session.get("room")
+    if not room:
+        return
+    
+    print(f"[call_ended] {sid} ended call in room {room}")
+    
+    for peer_sid in rooms.get(room, set()):
+        if peer_sid != sid:
+            await sio.emit("call_ended", data, to=peer_sid)
+
+
+# ------------------------------------------------------
+# Group chat events
+# ------------------------------------------------------
+
+@sio.event
+async def create_group(sid, data):
+    """
+    Create a new group chat.
+    Data: {name: string}
+    Returns: {id, name, memberCount}
+    """
+    import time
+    
+    name = data.get("name", "").strip()
+    if not name:
+        name = "Unnamed Group"
+    
+    group_id = str(uuid.uuid4())[:8]  # Short ID for easy sharing
+    
+    groups[group_id] = {
+        "id": group_id,
+        "name": name,
+        "members": {sid},
+        "createdAt": int(time.time() * 1000)
+    }
+    
+    # Track which groups this sid is in
+    if sid not in sid_to_groups:
+        sid_to_groups[sid] = set()
+    sid_to_groups[sid].add(group_id)
+    
+    print(f"[create_group] {sid} created group {group_id} ({name})")
+    
+    # Return group info to creator
+    await sio.emit("group_created", {
+        "id": group_id,
+        "name": name,
+        "memberCount": 1
+    }, to=sid)
+
+
+@sio.event
+async def join_group(sid, data):
+    """
+    Join an existing group.
+    Data: {groupId: string, displayName: string}
+    """
+    group_id = data.get("groupId")
+    display_name = data.get("displayName", "Anonymous")
+    
+    if not group_id or group_id not in groups:
+        await sio.emit("group_error", {"error": "Group not found"}, to=sid)
+        return
+    
+    group = groups[group_id]
+    group["members"].add(sid)
+    
+    # Track which groups this sid is in
+    if sid not in sid_to_groups:
+        sid_to_groups[sid] = set()
+    sid_to_groups[sid].add(group_id)
+    
+    print(f"[join_group] {sid} joined group {group_id} (members: {len(group['members'])})")
+    
+    # Notify the joiner
+    await sio.emit("group_joined", {
+        "id": group_id,
+        "name": group["name"],
+        "memberCount": len(group["members"])
+    }, to=sid)
+    
+    # Notify other members
+    for member_sid in group["members"]:
+        if member_sid != sid:
+            await sio.emit("group_member_joined", {
+                "groupId": group_id,
+                "displayName": display_name,
+                "memberCount": len(group["members"])
+            }, to=member_sid)
+
+
+@sio.event
+async def leave_group(sid, data):
+    """
+    Leave a group.
+    Data: {groupId: string, displayName: string}
+    """
+    group_id = data.get("groupId")
+    display_name = data.get("displayName", "Anonymous")
+    
+    if not group_id or group_id not in groups:
+        return
+    
+    group = groups[group_id]
+    group["members"].discard(sid)
+    
+    # Remove from tracking
+    if sid in sid_to_groups:
+        sid_to_groups[sid].discard(group_id)
+    
+    print(f"[leave_group] {sid} left group {group_id} (members: {len(group['members'])})")
+    
+    # Notify other members
+    for member_sid in group["members"]:
+        await sio.emit("group_member_left", {
+            "groupId": group_id,
+            "displayName": display_name,
+            "memberCount": len(group["members"])
+        }, to=member_sid)
+    
+    # Delete empty groups
+    if not group["members"]:
+        groups.pop(group_id, None)
+        print(f"[leave_group] group {group_id} is now empty and removed")
+
+
+@sio.event
+async def group_message(sid, data):
+    """
+    Send a message to all group members.
+    Data: {groupId: string, text: string, from: string}
+    """
+    import time
+    
+    group_id = data.get("groupId")
+    text = data.get("text", "")
+    from_name = data.get("from", "Anonymous")
+    
+    if not group_id or group_id not in groups:
+        return
+    
+    if not text.strip():
+        return
+    
+    group = groups[group_id]
+    
+    message = {
+        "groupId": group_id,
+        "text": text,
+        "from": from_name,
+        "ts": int(time.time() * 1000)
+    }
+    
+    # Broadcast to all members (including sender for confirmation)
+    for member_sid in group["members"]:
+        await sio.emit("group_message_received", message, to=member_sid)
+
+
 @sio.event
 async def disconnect(sid):
     """
-    Remove user from rooms and peer registry on disconnect.
+    Remove user from rooms, groups, and peer registry on disconnect.
     """
     print(f"[disconnect] {sid} disconnected")
 
@@ -319,6 +576,28 @@ async def disconnect(sid):
         online_peers.pop(device_id, None)
         print(f"[disconnect] {sid} unregistered peer {device_id}")
         print(f"[disconnect] Online peers: {len(online_peers)}")
+
+    # Remove from all groups
+    if sid in sid_to_groups:
+        for group_id in list(sid_to_groups[sid]):
+            if group_id in groups:
+                group = groups[group_id]
+                group["members"].discard(sid)
+                
+                # Notify remaining members
+                for member_sid in group["members"]:
+                    await sio.emit("group_member_left", {
+                        "groupId": group_id,
+                        "displayName": "Someone",
+                        "memberCount": len(group["members"])
+                    }, to=member_sid)
+                
+                # Delete empty groups
+                if not group["members"]:
+                    groups.pop(group_id, None)
+                    print(f"[disconnect] group {group_id} is now empty and removed")
+        
+        sid_to_groups.pop(sid, None)
 
     session = await sio.get_session(sid)
     room = session.get("room") if session else None
@@ -353,6 +632,7 @@ def main():
     print("Endpoints:")
     print(f"  GET  http://localhost:{PORT}/info      - Device info for discovery")
     print(f"  GET  http://localhost:{PORT}/peers     - List online peers")
+    print(f"  GET  http://localhost:{PORT}/groups    - List active groups")
     print(f"  POST http://localhost:{PORT}/set-name  - Set display name")
     print(f"  WS   http://localhost:{PORT}/socket.io - WebRTC signaling")
     print()
