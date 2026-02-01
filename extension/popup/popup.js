@@ -850,6 +850,13 @@ function sendMessage() {
   sendBtn.disabled = true;
 }
 
+function scrollToBottom(container) {
+  // Use requestAnimationFrame to ensure DOM has updated before scrolling
+  requestAnimationFrame(() => {
+    container.scrollTop = container.scrollHeight;
+  });
+}
+
 function addMessage(text, from, isSent, timestamp) {
   const msg = document.createElement("div");
   msg.className = `message ${isSent ? "sent" : "received"}`;
@@ -861,7 +868,7 @@ function addMessage(text, from, isSent, timestamp) {
   `;
 
   chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollToBottom(chatMessages);
 }
 
 function addSystemMessage(text) {
@@ -869,7 +876,7 @@ function addSystemMessage(text) {
   msg.className = "message system";
   msg.textContent = text;
   chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollToBottom(chatMessages);
 }
 
 // ============================================
@@ -1201,7 +1208,7 @@ function addFileMessage(name, size, isSent, progress) {
   `;
   
   chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollToBottom(chatMessages);
   
   return msgId;
 }
@@ -1375,7 +1382,7 @@ function addGroupMessage(text, from, isSent, timestamp) {
   `;
   
   groupChatMessages.appendChild(msg);
-  groupChatMessages.scrollTop = groupChatMessages.scrollHeight;
+  scrollToBottom(groupChatMessages);
 }
 
 function addGroupSystemMessage(text) {
@@ -1383,7 +1390,7 @@ function addGroupSystemMessage(text) {
   msg.className = "message system";
   msg.textContent = text;
   groupChatMessages.appendChild(msg);
-  groupChatMessages.scrollTop = groupChatMessages.scrollHeight;
+  scrollToBottom(groupChatMessages);
 }
 
 // Storage helpers
