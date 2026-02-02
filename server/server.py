@@ -257,20 +257,28 @@ async def register_peer(sid, data):
     """
     Register an extension as an online peer.
     
-    Data: {deviceId: string, displayName: string}
+    Data: {deviceId: string, displayName: string, ip?: string}
     
     This allows the server to track which extensions are online
     and provide the peer list via /peers endpoint.
     """
     device_id = data.get("deviceId")
     display_name = data.get("displayName", "Anonymous")
+    client_provided_ip = data.get("ip")  # Client may provide their detected LAN IP
     
     if not device_id:
         print(f"[register_peer] {sid} missing deviceId, ignoring")
         return
     
     session = await sio.get_session(sid)
-    client_ip = session.get("ip", "unknown")
+    server_detected_ip = session.get("ip", "unknown")
+    
+    # Use client-provided IP if available and valid (not localhost)
+    # This helps when clients connect locally but want to show their LAN IP
+    if client_provided_ip and not client_provided_ip.startswith("127."):
+        client_ip = client_provided_ip
+    else:
+        client_ip = server_detected_ip
     
     import time
     online_peers[device_id] = {
@@ -282,7 +290,7 @@ async def register_peer(sid, data):
     }
     sid_to_device[sid] = device_id
     
-    print(f"[register_peer] {sid} registered as {device_id} ({display_name}) from {client_ip}")
+    print(f"[register_peer] {sid} registered as {device_id} ({display_name}) from {client_ip} (provided: {client_provided_ip}, detected: {server_detected_ip})")
     print(f"[register_peer] Online peers: {len(online_peers)}")
 
 

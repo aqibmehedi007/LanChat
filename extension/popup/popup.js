@@ -91,6 +91,7 @@ const fileInput = document.getElementById("file-input");
 let peers = {};
 let settings = {};
 let myDeviceId = null;
+let myLocalIP = null; // Our detected LAN IP
 let currentPeer = null;
 let signalingServerUrl = null; // URL of the signaling server we're registered with
 
@@ -126,12 +127,63 @@ const ICE_SERVERS = [
 // Initialize popup
 document.addEventListener("DOMContentLoaded", init);
 
+/**
+ * Detect local LAN IP address using WebRTC
+ * This creates a temporary RTCPeerConnection to discover local IP
+ */
+async function detectLocalIP() {
+  return new Promise((resolve) => {
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    const ips = new Set();
+    
+    pc.createDataChannel("");
+    
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) {
+        pc.close();
+        // Return the first non-localhost IPv4 address found
+        for (const ip of ips) {
+          if (!ip.startsWith("127.") && !ip.includes(":")) {
+            console.log("[IP Detection] Detected local IP:", ip);
+            resolve(ip);
+            return;
+          }
+        }
+        // Fallback: use subnet from settings
+        resolve(null);
+        return;
+      }
+      
+      // Parse IP from candidate string
+      const candidate = event.candidate.candidate;
+      const ipMatch = candidate.match(/(\d{1,3}\.){3}\d{1,3}/);
+      if (ipMatch) {
+        ips.add(ipMatch[0]);
+      }
+    };
+    
+    pc.createOffer()
+      .then((offer) => pc.setLocalDescription(offer))
+      .catch(() => resolve(null));
+    
+    // Timeout after 3 seconds
+    setTimeout(() => {
+      pc.close();
+      resolve(null);
+    }, 3000);
+  });
+}
+
 async function init() {
   console.log("[Popup] Initializing...");
 
   // Load device ID
   myDeviceId = await getDeviceId();
   deviceIdEl.textContent = myDeviceId;
+
+  // Detect local IP address
+  myLocalIP = await detectLocalIP();
+  console.log("[Popup] My local IP:", myLocalIP);
 
   // Load settings
   settings = await loadSettings();
@@ -200,10 +252,11 @@ function connectToSignalingServer(serverUrl) {
 
   presenceSocket.on("connect", () => {
     console.log("[Presence] Connected to signaling server");
-    // Register ourselves as an online peer
+    // Register ourselves as an online peer (include our detected LAN IP)
     presenceSocket.emit("register_peer", {
       deviceId: myDeviceId,
       displayName: settings.displayName || "Anonymous",
+      ip: myLocalIP, // Send our detected LAN IP
     });
     updateStatusIndicator(true);
   });
