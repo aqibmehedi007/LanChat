@@ -1,293 +1,121 @@
-# OfficeMesh Chrome Extension
+# LanChat
 
-A peer-to-peer chat extension for local networks. Discover colleagues on your LAN and chat directly using WebRTC - no central server required once connected.
+A peer-to-peer chat app for your local network. Discover others on the same LAN and chat (and call) directly in the browser via WebRTC. The extension finds peers by scanning your subnet; a small Python signaling server runs on each machine for discovery and WebRTC handshakes.
 
 ## Features
 
-- **LAN Peer Discovery**: Automatically scan your local network to find other OfficeMesh users
-- **Direct P2P Chat**: Messages travel directly between browsers via WebRTC data channels
-- **Persistent Device IDs**: Each device gets a unique ID that persists across sessions
-- **Offline Caching**: Previously discovered peers are cached and shown even when offline
-- **Auto-Scan**: Optionally scan for new peers every 15/30/60 minutes
-- **Dark Theme UI**: Modern, clean interface that's easy on the eyes
+- **LAN peer discovery** — Scan your subnet to find other LanChat users (quick scan of known IPs or full subnet scan).
+- **Direct P2P chat** — One-on-one messaging over WebRTC data channels; messages stay between the two browsers.
+- **Group chat** — Create groups and chat with multiple peers; the signaling server relays group messages.
+- **Voice calls** — Place and receive WebRTC audio calls with peers (mute, end call).
+- **File transfer** — Send files directly to a peer over the data channel.
+- **Persistent device ID** — Each device gets a stable ID (stored in `~/.officemesh/device.json` by the server).
+- **Offline cache** — Previously discovered peers are cached and shown even when they’re offline.
+- **Auto-scan** — Optional background scan for new peers (e.g. every 15/30/60 minutes).
+- **Dark theme** — Simple, dark UI in the extension popup.
 
-## Architecture
+## Try it out
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         LAN Network                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────────┐              ┌──────────────────┐        │
-│  │   User A's PC    │              │   User B's PC    │        │
-│  │                  │              │                  │        │
-│  │ ┌──────────────┐ │   Scan IPs   │ ┌──────────────┐ │        │
-│  │ │   Chrome     │ │ ──────────── │ │   Chrome     │ │        │
-│  │ │  Extension   │ │              │ │  Extension   │ │        │
-│  │ └──────┬───────┘ │              │ └──────┬───────┘ │        │
-│  │        │         │              │        │         │        │
-│  │        │ WebRTC  │◄────────────►│        │         │        │
-│  │        │ P2P     │  Data Channel│        │         │        │
-│  │        │         │              │        │         │        │
-│  │ ┌──────▼───────┐ │   Signaling  │ ┌──────▼───────┐ │        │
-│  │ │  Signaling   │ │◄────────────►│ │  Signaling   │ │        │
-│  │ │  Server.exe  │ │              │ │  Server.exe  │ │        │
-│  │ │  (port 5000) │ │              │ │  (port 5000) │ │        │
-│  │ └──────────────┘ │              │ └──────────────┘ │        │
-│  └──────────────────┘              └──────────────────┘        │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+### 1. Install the signaling server dependencies
 
-Each user runs:
-1. **Signaling Server** (`OfficeMesh-Signaling.exe`) - Handles WebRTC signaling and provides device info for discovery
-2. **Chrome Extension** - Scans for peers, displays online users, and manages chat connections
-
-## Project Structure
-
-```
-plan/
-├── extension/                    # Chrome Extension
-│   ├── manifest.json            # Extension manifest (permissions, config)
-│   ├── popup/
-│   │   ├── popup.html           # Main UI
-│   │   ├── popup.css            # Styles
-│   │   └── popup.js             # UI logic, WebRTC chat
-│   ├── background/
-│   │   └── service-worker.js    # Background scanning, alarms
-│   ├── lib/
-│   │   └── scanner.js           # LAN IP scanning module
-│   └── icons/
-│       ├── icon16.png           # Extension icons
-│       ├── icon48.png
-│       ├── icon128.png
-│       └── generate-icons.html  # Tool to regenerate icons
-│
-└── server/                       # Signaling Server
-    ├── server.py                # Python signaling server
-    ├── requirements.txt         # Python dependencies
-    └── build.bat                # PyInstaller build script
-```
-
-## Setup Instructions
-
-### Prerequisites
-
-- **Python 3.10+** for the signaling server
-- **Google Chrome** or Chromium-based browser
-- All users must be on the **same local network** (same subnet)
-
-### Step 1: Build the Signaling Server
-
-1. Open a terminal in the `plan/server/` folder
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Build the executable:
-   ```bash
-   build.bat
-   ```
-   
-   This creates `dist/OfficeMesh-Signaling.exe`
-
-4. (Optional) You can also run directly with Python:
-   ```bash
-   python server.py
-   ```
-
-### Step 2: Generate Extension Icons
-
-1. Open `plan/extension/icons/generate-icons.html` in Chrome
-
-2. Click "Generate Icons"
-
-3. Right-click each canvas and save as:
-   - `icon16.png`
-   - `icon48.png`
-   - `icon128.png`
-
-### Step 3: Install the Chrome Extension
-
-1. Open Chrome and go to `chrome://extensions/`
-
-2. Enable **Developer mode** (toggle in top right)
-
-3. Click **Load unpacked**
-
-4. Select the `plan/extension/` folder
-
-5. The OfficeMesh icon should appear in your toolbar
-
-### Step 4: Configure the Extension
-
-1. Click the OfficeMesh icon in Chrome toolbar
-
-2. Click the gear icon (⚙️) to open Settings
-
-3. Configure:
-   - **Your Display Name**: How you appear to others
-   - **Network Subnet**: Your LAN subnet (e.g., `192.168.1`, `192.168.2`, `10.0.0`)
-   - **Auto-scan Interval**: How often to scan for new peers
-
-4. Click **Save Settings**
-
-## Usage
-
-### Running the Signaling Server
-
-Each user must run the signaling server on their machine:
+From the project root:
 
 ```bash
-# Run the built executable
-OfficeMesh-Signaling.exe
+cd server
+pip install -r requirements.txt
+```
 
-# Or run with Python
+### 2. Load the Chrome extension
+
+1. Open Chrome and go to **chrome://extensions/**.
+2. Turn on **Developer mode** (top right).
+3. Click **Load unpacked** and choose the **`extension`** folder (the one that contains `manifest.json`).
+4. The extension icon (OfficeMesh) should appear in the toolbar.
+
+### 3. Run the signaling server
+
+Each person who wants to chat must run the server on their own machine:
+
+```bash
+cd server
 python server.py
 ```
 
-The server will display:
+You should see something like:
+
 ```
 OfficeMesh Signaling Server v1.0.0
-Device ID: abc123-def456-...
+Device ID: ...
 Display Name: Anonymous
-Config stored at: C:\Users\YourName\.officemesh\device.json
+Config stored at: C:\Users\...\.officemesh\device.json
 Starting server on port 5000...
 ```
 
-### Discovering Peers
+### 4. Configure and use the extension
 
-1. Click the OfficeMesh icon in Chrome
+1. Click the extension icon in the toolbar.
+2. Open **Settings** (gear icon) and set:
+   - **Your Display Name** — How you appear to others.
+   - **Network Subnet** — Your LAN subnet, e.g. `192.168.1` or `192.168.2` (from `ipconfig` / `ifconfig`: first three parts of your IPv4 address).
+   - **Auto-scan interval** (optional) — How often to scan for new peers.
+3. Click **Save Settings**.
+4. In the **Peers** tab, click **Scan** (or **Quick** to re-check known peers).
+5. When a peer appears and is online, click them to open a chat. You can send text, files, or start a voice call.
 
-2. Click **Scan** to perform a full subnet scan
+---
 
-3. Found peers will appear in the list with their:
-   - Display name
-   - IP address
-   - Online/offline status
+## Architecture
 
-### Chatting
+- **Signaling server** (`server/server.py`) — Runs on each machine on port 5000. Serves `/info` for discovery, `/set-name` to change display name, and Socket.IO for WebRTC signaling (offer/answer/ICE). Does not relay chat or call media.
+- **Chrome extension** — Scans the LAN for other servers, shows peers and groups, and sets up WebRTC connections (data channel for chat/files, audio for calls).
 
-1. Click on an online peer in the list
+All chat and call traffic is peer-to-peer (WebRTC). The server only helps peers find each other and exchange signaling messages.
 
-2. Wait for the connection to establish (uses WebRTC)
+## Project structure
 
-3. Type your message and press Enter or click Send
+```
+LanChat/
+├── extension/                 # Chrome extension
+│   ├── manifest.json
+│   ├── popup/
+│   │   ├── popup.html
+│   │   ├── popup.css
+│   │   └── popup.js
+│   ├── background/
+│   │   └── service-worker.js
+│   ├── lib/
+│   │   ├── scanner.js
+│   │   └── socket.io.min.js
+│   └── icons/
+│       └── ...
+│
+└── server/
+    ├── server.py              # Signaling server
+    ├── requirements.txt
+    └── build.bat              # Optional: build .exe with PyInstaller
+```
 
-4. Messages are sent directly peer-to-peer (not through any server)
+## Requirements
 
-### How Scanning Works
-
-1. Extension reads your configured subnet (e.g., `192.168.1`)
-
-2. Scans all IPs from `.1` to `.255` in parallel batches
-
-3. For each IP, tries to connect to `http://{ip}:5000/info`
-
-4. If successful, the response includes:
-   ```json
-   {
-     "deviceId": "unique-id",
-     "displayName": "User Name",
-     "version": "1.0.0",
-     "type": "officemesh-signaling"
-   }
-   ```
-
-5. Found peers are cached in Chrome storage
+- **Python 3.10+** for the signaling server.
+- **Chrome** (or Chromium-based browser).
+- All users on the **same local network** (same subnet).
+- **Port 5000** free on each machine (and allowed through firewall if applicable).
 
 ## Troubleshooting
 
-### Can't find peers on the network
+- **No peers found** — Check subnet (e.g. `ipconfig` → use first three octets of IPv4). Ensure the other person has `python server.py` running and that port 5000 is allowed (e.g. Windows Firewall).
+- **Chat or call won’t connect** — Both sides need the signaling server running. Refresh the extension popup and try again.
+- **Extension won’t load** — Load the **`extension`** folder (where `manifest.json` is), not the repo root. Check for errors on `chrome://extensions`.
 
-1. **Check your subnet setting**: Make sure it matches your network
-   - Run `ipconfig` (Windows) or `ifconfig` (Mac/Linux)
-   - Look for your IPv4 address (e.g., `192.168.2.45`)
-   - Use the first 3 octets as your subnet (`192.168.2`)
+## Signaling server API (reference)
 
-2. **Check if signaling server is running**: The peer must have `OfficeMesh-Signaling.exe` running
-
-3. **Check Windows Firewall**: Allow Python/the exe through firewall on port 5000
-
-### Chat won't connect
-
-1. **Both users need signaling servers running**
-
-2. **Check WebRTC connectivity**: Some networks block peer-to-peer connections
-
-3. **Try refreshing**: Close and reopen the extension popup
-
-### Extension not loading
-
-1. Make sure you loaded from the `extension/` folder (not `plan/`)
-
-2. Check for errors in `chrome://extensions/`
-
-3. Icons must be valid PNG files (use the generator tool)
-
-## Security Notes
-
-- All chat messages are **end-to-end encrypted** by WebRTC
-- The signaling server only relays connection metadata, never message content
-- Device IDs are random UUIDs, not linked to personal information
-- No data leaves your local network
-
-## API Reference
-
-### Signaling Server Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/info` | GET | Returns device ID, display name, and version |
-| `/set-name` | POST | Update display name. Body: `{ "name": "New Name" }` |
-| `/socket.io` | WS | Socket.IO endpoint for WebRTC signaling |
-
-### Chrome Storage Schema
-
-```javascript
-// chrome.storage.local
-{
-  "settings": {
-    "subnet": "192.168.1",
-    "displayName": "Your Name",
-    "autoScanInterval": 30
-  },
-  "peers": {
-    "device-id-123": {
-      "ip": "192.168.1.45",
-      "deviceId": "device-id-123",
-      "displayName": "Peer Name",
-      "lastSeen": 1706900000000,
-      "online": true
-    }
-  }
-}
-
-// chrome.storage.sync (persists across devices if signed into Chrome)
-{
-  "deviceId": "your-unique-device-id"
-}
-```
-
-## Development
-
-### Testing locally
-
-1. Run signaling server: `python server.py`
-2. Load extension in Chrome
-3. Use Chrome DevTools to inspect:
-   - Extension popup: Right-click popup → Inspect
-   - Service worker: `chrome://extensions/` → Details → Inspect views
-
-### Building for production
-
-1. Update version in `manifest.json`
-2. Generate fresh icons
-3. Zip the `extension/` folder
-4. Submit to Chrome Web Store (optional)
+| Endpoint      | Method | Description |
+|---------------|--------|-------------|
+| `/info`       | GET    | Device ID, display name, version (used by extension for discovery). |
+| `/set-name`   | POST   | Update display name. Body: `{ "name": "New Name" }`. |
+| `/socket.io`  | WS     | Socket.IO for WebRTC signaling. |
 
 ## License
 
-MIT License - feel free to use and modify for your needs.
+MIT.
