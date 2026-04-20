@@ -14,8 +14,9 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
+  createDesktopShortcut: always      # ← forces desktop shortcut for all users
   createStartMenuShortcut: true
+  shortcutName: OfficeMesh           # label shown on the shortcut
 
 extraResources:
   - from: ../server/
