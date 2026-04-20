@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src * ws://* wss://*;">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src * ws://* wss://*; img-src 'self' data:;">
   <title>OfficeMesh</title>
   <link rel="stylesheet" href="styles/main.css">
   <link rel="stylesheet" href="styles/titlebar.css">
@@ -188,6 +188,7 @@
     <span id="scan-toast-text">Scanning...</span>
   </div>
 
+  <script src="../node_modules/socket.io-client/dist/socket.io.min.js"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

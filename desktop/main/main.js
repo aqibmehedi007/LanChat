@@ -49,9 +49,9 @@ ipcMain.on('window:maximize', () => {
 })
 ipcMain.on('window:close', () => mainWindow?.close())
 
-app.whenReady().then(() => {
-  // Start Python signaling server
-  startServer()
+app.whenReady().then(async () => {
+  // Start Python signaling server (skips if already running)
+  await startServer()
 
   // Register all IPC handlers
   initFileHandler()

@@ -24,8 +24,28 @@ function getPython() {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
-function startServer() {
+async function isPortInUse(port) {
+  // Quick HTTP check — if /info responds, a server is already running
+  return new Promise(resolve => {
+    const http = require('http')
+    const req  = http.get(`http://127.0.0.1:${port}/info`, res => {
+      res.resume()
+      resolve(true)
+    })
+    req.on('error', () => resolve(false))
+    req.setTimeout(1000, () => { req.destroy(); resolve(false) })
+  })
+}
+
+async function startServer() {
   if (serverProcess) return
+
+  // If another instance already has the server running, skip
+  const alreadyRunning = await isPortInUse(5000)
+  if (alreadyRunning) {
+    console.log('[ServerManager] Server already running on port 5000, skipping spawn')
+    return
+  }
 
   const serverPath = getServerPath()
 

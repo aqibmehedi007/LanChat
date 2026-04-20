@@ -20,14 +20,12 @@ export const state = {
   presenceSocket:     null,   // kept-alive socket for peer registration
 }
 
-// ── Socket.IO loaded from node_modules ───────────────────────────
-let _io = null
-async function getIO() {
-  if (!_io) {
-    const mod = await import('../node_modules/socket.io-client/dist/socket.io.esm.min.js')
-    _io = mod.io
+// ── Socket.IO — loaded via <script> tag in index.html as window.io ──
+function getIO() {
+  if (typeof window.io !== 'function') {
+    throw new Error('socket.io not loaded — check index.html script tag')
   }
-  return _io
+  return window.io
 }
 
 // ── Init ──────────────────────────────────────────────────────────
@@ -89,7 +87,7 @@ export async function connectPresence(serverUrl) {
   }
 
   console.log('[Presence] Connecting to', serverUrl)
-  const io = await getIO()
+  const io = getIO()
 
   const socket = io(serverUrl, {
     transports: ['websocket', 'polling'],
@@ -132,6 +130,8 @@ async function refreshPeerList(serverUrl) {
 
     const fresh = {}
     for (const p of (data.peers || [])) {
+      // Never show ourselves in the peer list
+      if (p.deviceId === state.myDeviceId) continue
       fresh[p.deviceId] = {
         ...p,
         online:   true,
