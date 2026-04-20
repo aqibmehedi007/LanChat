@@ -19,7 +19,8 @@ export async function scanNetwork(subnet, opts = {}) {
   const { onProgress } = opts
 
   const allIPs = []
-  for (let i = 1; i <= 255; i++) allIPs.push(`${subnet}.${i}`)
+  // Stop at .254 — .255 is the broadcast address and causes ERR_ADDRESS_INVALID
+  for (let i = 1; i <= 254; i++) allIPs.push(`${subnet}.${i}`)
 
   const servers    = []
   const peers      = {}

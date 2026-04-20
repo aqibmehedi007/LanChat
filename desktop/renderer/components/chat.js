@@ -90,8 +90,7 @@ async function connectToPeer(peer) {
     const serverUrl = `http://${serverIp}:5000`
     console.log('[Chat] Connecting to signaling server:', serverUrl)
 
-    // Dynamically load socket.io-client from node_modules via file protocol
-    const { io } = await import('../../node_modules/socket.io-client/dist/socket.io.esm.min.js')
+    const { io } = await import('../node_modules/socket.io-client/dist/socket.io.esm.min.js')
 
     socket = io(serverUrl, { transports: ['websocket', 'polling'], timeout: 5000 })
 

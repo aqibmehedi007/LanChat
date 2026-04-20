@@ -138,6 +138,22 @@ def generate_icons():
     )
     print("  ✓ icon.ico  (multi-size: 16/32/48/64/128/256)")
 
+# ── Step 2b: Install Python server deps ──────────────────────────
+
+def install_server_deps():
+    print("\n[2b/5] Installing Python server dependencies...")
+    reqs = ROOT / "server" / "requirements.txt"
+    if not reqs.exists():
+        print("  ⚠ requirements.txt not found, skipping")
+        return
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", str(reqs), "--quiet"],
+    )
+    if result.returncode == 0:
+        print("  ✓ aiohttp, python-socketio installed")
+    else:
+        print("  ⚠ pip install had warnings (may still work)")
+
 # ── Step 3: npm install ───────────────────────────────────────────
 
 def npm_install():
@@ -206,6 +222,7 @@ def main():
 
     check_deps()
     generate_icons()
+    install_server_deps()
     npm_install()
     installer = build_electron()
     open_dist(installer)
