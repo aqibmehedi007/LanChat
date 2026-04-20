@@ -126,9 +126,10 @@ def generate_icons():
     tray.save(ASSETS_DIR / "tray-icon.png", "PNG")
     print("  ✓ tray-icon.png")
 
-    # ICO file (multi-size, required by electron-builder for Windows)
-    ico_sizes = [16, 32, 48, 64, 128, 256]
-    ico_imgs  = [draw_icon(s) for s in ico_sizes]
+    # ICO file — electron-builder requires 256x256 as the primary size
+    # Pillow ICO: first image in the list becomes the primary entry
+    ico_sizes = [256, 128, 64, 48, 32, 16]
+    ico_imgs  = [draw_icon(s).convert("RGBA") for s in ico_sizes]
     ico_path  = ASSETS_DIR / "icon.ico"
     ico_imgs[0].save(
         ico_path,
@@ -136,7 +137,7 @@ def generate_icons():
         sizes=[(s, s) for s in ico_sizes],
         append_images=ico_imgs[1:],
     )
-    print("  ✓ icon.ico  (multi-size: 16/32/48/64/128/256)")
+    print("  ✓ icon.ico  (primary 256x256, multi-size: 256/128/64/48/32/16)")
 
 # ── Step 2b: Install Python server deps ──────────────────────────
 
@@ -182,7 +183,11 @@ def build_electron():
     # Clean previous dist
     if DIST_DIR.exists():
         print("  Cleaning previous dist/...")
-        shutil.rmtree(DIST_DIR)
+        if sys.platform == "win32":
+            # shutil.rmtree fails on locked DLLs — use rd /s /q instead
+            subprocess.run(["cmd", "/c", "rd", "/s", "/q", str(DIST_DIR)], check=False)
+        else:
+            shutil.rmtree(DIST_DIR, ignore_errors=True)
 
     result = subprocess.run(
         [npm_cmd, "run", "build"],
