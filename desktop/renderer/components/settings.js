@@ -63,10 +63,14 @@ async function refreshServerStatus() {
     const status = await window.electronAPI.getServerStatus()
     if (status.running) {
       dot.className  = 'server-dot running'
-      text.textContent = `Running (PID ${status.pid})`
+      if (status.external) {
+        text.textContent = 'Running (another instance)'
+      } else {
+        text.textContent = `Running (PID ${status.pid})`
+      }
     } else {
       dot.className  = 'server-dot'
-      text.textContent = 'Stopped'
+      text.textContent = status.error || 'Stopped'
     }
   } catch {
     dot.className  = 'server-dot'

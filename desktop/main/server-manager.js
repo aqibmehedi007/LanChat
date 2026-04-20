@@ -105,15 +105,28 @@ function stopServer() {
 }
 
 function getStatus() {
+  const ownProcess = serverProcess !== null && !serverProcess.killed
   return {
-    running: serverProcess !== null && !serverProcess.killed,
+    running: ownProcess,
     pid:     serverProcess?.pid ?? null,
     error:   lastError,
+    // If we didn't spawn it, check if another instance has it running
+    externalRunning: !ownProcess,
   }
 }
 
 function initServerIPC() {
-  ipcMain.handle('server:status', () => getStatus())
+  ipcMain.handle('server:status', async () => {
+    const status = getStatus()
+    // If we don't own the process, check if the server is reachable anyway
+    if (!status.running) {
+      const reachable = await isPortInUse(5000)
+      if (reachable) {
+        return { running: true, pid: null, error: null, external: true }
+      }
+    }
+    return status
+  })
 
   ipcMain.handle('server:restart', () => {
     stopServer()
