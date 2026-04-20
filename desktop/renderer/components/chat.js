@@ -299,11 +299,10 @@ export async function sendFile(file) {
 
   let chunkIndex = 0
   for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
-    // Wait for the DataChannel buffer to drain before sending more
     await waitForBufferDrain(dataChannel)
 
     const slice  = bytes.slice(offset, offset + CHUNK_SIZE)
-    const base64 = btoa(String.fromCharCode(...slice))
+    const base64 = uint8ToBase64(slice)
     dataChannel.send(JSON.stringify({ type: 'file_chunk', fileId, index: chunkIndex++, data: base64 }))
     updateFileBubbleProgress(fileId, (offset + CHUNK_SIZE) / bytes.length)
   }
@@ -369,8 +368,23 @@ async function handleFileEnd(data) {
 
   updateFileBubbleProgress(data.fileId, 1)
   try {
-    const combined = file.chunks.join('')
-    const result = await window.electronAPI.saveFile(file.name, combined)
+    // Decode each base64 chunk to binary, combine, then re-encode as one base64 string
+    const allBytes = []
+    let totalLen = 0
+    for (let i = 0; i < file.totalChunks; i++) {
+      const chunkBytes = base64ToUint8(file.chunks[i])
+      allBytes.push(chunkBytes)
+      totalLen += chunkBytes.length
+    }
+    const combined = new Uint8Array(totalLen)
+    let offset = 0
+    for (const chunk of allBytes) {
+      combined.set(chunk, offset)
+      offset += chunk.length
+    }
+    // Convert the full binary back to base64 for the main process
+    const fullBase64 = uint8ToBase64(combined)
+    const result = await window.electronAPI.saveFile(file.name, fullBase64)
     if (result.success) {
       savedFilePaths.set(data.fileId, result.path)
       addSystemMessage(`Saved "${file.name}" to Downloads`)
@@ -427,3 +441,28 @@ function fileIcon(name) {
            gif:'🖼️',mp4:'🎬',mp3:'🎵',txt:'📃' }[ext] || '📁'
 }
 function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+/**
+ * Convert Uint8Array to base64 string safely (no spread operator).
+ * The spread approach `btoa(String.fromCharCode(...arr))` fails silently
+ * on chunks > ~8KB because it exceeds max function arguments.
+ */
+function uint8ToBase64(uint8) {
+  let binary = ''
+  for (let i = 0; i < uint8.length; i++) {
+    binary += String.fromCharCode(uint8[i])
+  }
+  return btoa(binary)
+}
+
+/**
+ * Convert base64 string back to Uint8Array.
+ */
+function base64ToUint8(base64) {
+  const binary = atob(base64)
+  const bytes  = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
