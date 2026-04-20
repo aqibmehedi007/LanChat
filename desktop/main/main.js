@@ -1,11 +1,20 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
+const crypto = require('crypto')
 
 const { initTray }          = require('./tray')
 const { startServer, stopServer, initServerIPC } = require('./server-manager')
 const { initFileHandler }   = require('./file-handler')
 const { initSettingsIPC }   = require('./settings-handler')
 const { initAutoLaunchIPC } = require('./auto-launch')
+
+// Allow multiple instances on the same machine for testing.
+// Each gets its own GPU cache to avoid "Unable to move the cache" errors.
+// In production (packaged), requestSingleInstanceLock prevents duplicates.
+if (!app.isPackaged) {
+  const instanceId = crypto.randomBytes(4).toString('hex')
+  app.setPath('userData', path.join(app.getPath('userData'), `instance-${instanceId}`))
+}
 
 let mainWindow = null
 
