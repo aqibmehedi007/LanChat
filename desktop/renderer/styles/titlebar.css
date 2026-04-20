@@ -1,0 +1,80 @@
+/* ── Custom Frameless Titlebar ── */
+
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 9999;
+  -webkit-app-region: drag; /* makes the bar draggable */
+}
+
+.titlebar-drag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 14px;
+  flex: 1;
+}
+
+.titlebar-logo {
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.titlebar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+
+.titlebar-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.titlebar-status.connected {
+  color: var(--online);
+}
+
+.titlebar-status.connected::before {
+  content: '● ';
+}
+
+/* Window control buttons — must NOT be draggable */
+.titlebar-controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.tb-btn {
+  width: 46px;
+  height: var(--titlebar-h);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+
+.tb-btn:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.tb-close:hover {
+  background: var(--danger);
+  color: #fff;
+}

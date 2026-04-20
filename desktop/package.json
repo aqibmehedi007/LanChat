@@ -1,0 +1,20 @@
+{
+  "name": "officemesh-desktop",
+  "version": "1.0.0",
+  "description": "OfficeMesh desktop app — LAN peer-to-peer chat with drag-and-drop file transfer",
+  "main": "main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "socket.io-client": "4.7.5"
+  },
+  "devDependencies": {
+    "electron": "30.0.0",
+    "electron-builder": "24.13.3"
+  }
+}

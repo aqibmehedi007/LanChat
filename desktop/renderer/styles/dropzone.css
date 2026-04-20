@@ -1,0 +1,57 @@
+/* ── Drag-and-Drop Overlay ── */
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 29, 46, 0.93);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  border: 3px dashed transparent;
+  border-radius: 4px;
+}
+
+.drop-overlay.visible {
+  opacity: 1;
+  pointer-events: all;
+  border-color: var(--accent);
+}
+
+.drop-overlay-inner {
+  text-align: center;
+  pointer-events: none;
+}
+
+.drop-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+  animation: bounce 0.8s ease infinite alternate;
+}
+
+@keyframes bounce {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-8px); }
+}
+
+.drop-overlay-inner h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+#drop-target-label {
+  font-size: 15px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.drop-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}

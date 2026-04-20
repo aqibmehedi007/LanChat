@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src * ws://* wss://*;">
+  <title>OfficeMesh</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/titlebar.css">
+  <link rel="stylesheet" href="styles/sidebar.css">
+  <link rel="stylesheet" href="styles/chat.css">
+  <link rel="stylesheet" href="styles/dropzone.css">
+</head>
+<body>
+
+  <!-- Custom Titlebar -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-drag">
+      <span class="titlebar-logo">⬡</span>
+      <span class="titlebar-title">OfficeMesh</span>
+      <span class="titlebar-status" id="titlebar-status"></span>
+    </div>
+    <div class="titlebar-controls">
+      <button class="tb-btn" id="tb-minimize" title="Minimize">&#x2212;</button>
+      <button class="tb-btn" id="tb-maximize" title="Maximize">&#x25A1;</button>
+      <button class="tb-btn tb-close" id="tb-close" title="Close">&#x2715;</button>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-peers" id="sidebar-peers">
+        <!-- Peer cards injected by sidebar.js -->
+        <div class="empty-peers" id="empty-peers">
+          <div class="empty-peers-icon">👥</div>
+          <p>No peers found</p>
+          <span>Click Scan to discover peers</span>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="sidebar-btn" id="scan-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          Scan
+        </button>
+        <button class="sidebar-btn sidebar-btn-settings" id="settings-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Settings
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Panel -->
+    <main class="main-panel" id="main-panel">
+
+      <!-- Welcome screen -->
+      <div class="welcome-screen" id="welcome-screen">
+        <div class="welcome-icon">⬡</div>
+        <h2>Welcome to OfficeMesh</h2>
+        <p>Select a peer from the sidebar to start chatting,<br>or click <strong>Scan</strong> to discover peers on your network.</p>
+      </div>
+
+      <!-- Chat view (hidden until peer selected) -->
+      <div class="chat-view hidden" id="chat-view">
+        <div class="chat-header" id="chat-header">
+          <div class="chat-peer-avatar" id="chat-peer-avatar">?</div>
+          <div class="chat-peer-info">
+            <span class="chat-peer-name" id="chat-peer-name">Peer</span>
+            <span class="chat-peer-status" id="chat-peer-status">Connecting...</span>
+          </div>
+          <div class="chat-header-actions">
+            <button class="icon-btn call-btn" id="call-btn" title="Voice call">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages"></div>
+
+        <div class="chat-input-bar">
+          <button class="icon-btn attach-btn" id="attach-btn" title="Attach file">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <input type="file" id="file-input" multiple style="display:none">
+          <input type="text" id="chat-input" placeholder="Write a message..." autocomplete="off" disabled>
+          <button class="send-btn" id="send-btn" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Settings view (hidden until settings btn clicked) -->
+      <div class="settings-view hidden" id="settings-view">
+        <div class="settings-header">
+          <h2>Settings</h2>
+          <button class="icon-btn" id="settings-close-btn" title="Close settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="settings-body">
+
+          <div class="setting-group">
+            <label for="s-display-name">Display Name</label>
+            <input type="text" id="s-display-name" placeholder="Anonymous" maxlength="50">
+            <span class="setting-hint">How you appear to other peers</span>
+          </div>
+
+          <div class="setting-group">
+            <label for="s-subnet">Network Subnet</label>
+            <div class="subnet-row">
+              <input type="text" id="s-subnet" placeholder="192.168.1" pattern="^\d{1,3}\.\d{1,3}\.\d{1,3}$">
+              <span class="subnet-suffix">.1–255</span>
+            </div>
+            <span class="setting-hint">First 3 octets of your LAN</span>
+          </div>
+
+          <div class="setting-group">
+            <label for="s-scan-interval">Auto-scan Interval</label>
+            <select id="s-scan-interval">
+              <option value="0">Disabled</option>
+              <option value="15">Every 15 minutes</option>
+              <option value="30" selected>Every 30 minutes</option>
+              <option value="60">Every hour</option>
+            </select>
+          </div>
+
+          <div class="setting-group setting-row">
+            <label for="s-autolaunch">Start with Windows</label>
+            <label class="toggle">
+              <input type="checkbox" id="s-autolaunch">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <label>Signaling Server</label>
+            <div class="server-status-row">
+              <span class="server-dot" id="server-dot"></span>
+              <span id="server-status-text">Checking...</span>
+              <button class="btn-sm" id="restart-server-btn">Restart</button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <label>Device ID</label>
+            <div class="device-id-box" id="s-device-id">Loading...</div>
+          </div>
+
+          <button class="btn-primary btn-full" id="save-settings-btn">Save Settings</button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Drag-and-drop overlay -->
+  <div class="drop-overlay" id="drop-overlay">
+    <div class="drop-overlay-inner">
+      <div class="drop-icon">📂</div>
+      <h2>Drop to send</h2>
+      <p id="drop-target-label">to peer</p>
+      <p class="drop-hint">Supports any file type</p>
+    </div>
+  </div>
+
+  <!-- Scan progress toast -->
+  <div class="scan-toast hidden" id="scan-toast">
+    <div class="scan-toast-bar">
+      <div class="scan-toast-fill" id="scan-toast-fill"></div>
+    </div>
+    <span id="scan-toast-text">Scanning...</span>
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
