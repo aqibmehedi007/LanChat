@@ -98,6 +98,16 @@ async function connectToPeer(peer) {
       console.log('[Chat] Socket connected, joining room:', currentRoomId)
       addSystemMessage('Joined room — waiting for peer...')
       socket.emit('join_room', currentRoomId)
+
+      // Notify the other peer via the presence socket that we want to chat
+      if (state.presenceSocket?.connected) {
+        state.presenceSocket.emit('chat_request', {
+          targetDeviceId: peer.deviceId,
+          fromDeviceId:   state.myDeviceId,
+          fromName:       state.settings.displayName || 'Someone',
+          roomId:         currentRoomId,
+        })
+      }
     })
 
     socket.on('connect_error', err => {

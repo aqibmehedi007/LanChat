@@ -3,7 +3,7 @@
  */
 
 import { initTitlebar, setTitlebarStatus } from './components/titlebar.js'
-import { initSidebar, renderPeers } from './components/sidebar.js'
+import { initSidebar, renderPeers, setActivePeer } from './components/sidebar.js'
 import { initChat, openChat } from './components/chat.js'
 import { initDropzone } from './components/dropzone.js'
 import { initSettings } from './components/settings.js'
@@ -155,6 +155,30 @@ export async function connectPresence(serverUrl) {
     setTitlebarStatus('connected', 'Connected')
     // Refresh peer list after registering
     setTimeout(() => refreshPeerList(serverUrl), 800)
+  })
+
+  // Listen for incoming chat requests from other peers
+  socket.on('incoming_chat', data => {
+    console.log('[App] Incoming chat request from:', data.fromName, data.fromDeviceId)
+
+    // If we're already chatting with this peer, ignore
+    if (state.currentPeer?.deviceId === data.fromDeviceId) {
+      console.log('[App] Already in chat with this peer, ignoring')
+      return
+    }
+
+    // Find the peer in our list
+    const peer = state.peers[data.fromDeviceId]
+    if (!peer) {
+      console.warn('[App] Incoming chat from unknown peer:', data.fromDeviceId)
+      return
+    }
+
+    // Auto-open the chat with this peer
+    console.log('[App] Auto-opening chat with', data.fromName)
+    state.currentPeer = peer
+    setActivePeer(peer.deviceId)
+    openChat(peer)
   })
 
   socket.on('connect_error', err => {

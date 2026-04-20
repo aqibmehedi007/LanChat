@@ -320,7 +320,7 @@ async def join_room(sid, room: str):
     print(f"[join_room] {sid} joined room {room} (count={len(rooms[room])})")
 
     # When we have two peers, start WebRTC negotiation
-    if len(rooms[room]) == 2:
+    if len(rooms[room]) >= 2:
         initiator_sid = room_initiator.get(room)
         for peer_sid in rooms[room]:
             await sio.emit(
@@ -347,6 +347,36 @@ async def signal(sid, data):
     for peer_sid in rooms.get(room, set()):
         if peer_sid != sid:
             await sio.emit("signal", data, to=peer_sid)
+
+
+@sio.event
+async def chat_request(sid, data):
+    """
+    Notify a peer that someone wants to chat with them.
+    Sent via the presence socket. The target peer's app will
+    auto-open the chat and join the signaling room.
+    
+    Data: {targetDeviceId: string, fromDeviceId: string, fromName: string, roomId: string}
+    """
+    target_device_id = data.get("targetDeviceId")
+    if not target_device_id:
+        return
+    
+    target_peer = online_peers.get(target_device_id)
+    if not target_peer:
+        print(f"[chat_request] Target {target_device_id} not online")
+        return
+    
+    target_sid = target_peer.get("sid")
+    if not target_sid:
+        return
+    
+    print(f"[chat_request] {data.get('fromName', '?')} -> {target_device_id}")
+    await sio.emit("incoming_chat", {
+        "fromDeviceId": data.get("fromDeviceId"),
+        "fromName":     data.get("fromName", "Someone"),
+        "roomId":       data.get("roomId"),
+    }, to=target_sid)
 
 
 # ------------------------------------------------------
