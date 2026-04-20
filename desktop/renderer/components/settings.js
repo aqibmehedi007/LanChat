@@ -36,12 +36,24 @@ async function populateSettings() {
   const s = state.settings
 
   document.getElementById('s-display-name').value  = s.displayName || ''
-  document.getElementById('s-subnet').value         = s.subnet || '192.168.1'
+  document.getElementById('s-subnet').value         = s.subnet || ''
   document.getElementById('s-scan-interval').value  = String(s.autoScanInterval || 30)
   document.getElementById('s-device-id').textContent = state.myDeviceId || 'Unknown'
 
+  // Show detected IP hint
+  if (state.myLocalIP) {
+    const hint = document.querySelector('#s-subnet')?.closest('.setting-group')?.querySelector('.setting-hint')
+    if (hint) hint.textContent = `Auto-detected: ${state.myLocalIP} → subnet ${ipToSubnet(state.myLocalIP)}`
+  }
+
   const autolaunch = await window.electronAPI.isAutoLaunchEnabled()
   document.getElementById('s-autolaunch').checked = !!autolaunch
+}
+
+function ipToSubnet(ip) {
+  if (!ip) return ''
+  const parts = ip.split('.')
+  return parts.length === 4 ? parts.slice(0, 3).join('.') : ''
 }
 
 async function refreshServerStatus() {

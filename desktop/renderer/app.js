@@ -28,6 +28,41 @@ function getIO() {
   return window.io
 }
 
+// ── Auto-detect local WiFi IP via WebRTC ─────────────────────────
+async function detectLocalIP() {
+  return new Promise(resolve => {
+    const pc   = new RTCPeerConnection({ iceServers: [] })
+    const ips  = new Set()
+    pc.createDataChannel('')
+    pc.onicecandidate = e => {
+      if (!e.candidate) {
+        pc.close()
+        // Prefer non-loopback IPv4
+        for (const ip of ips) {
+          if (!ip.startsWith('127.') && !ip.includes(':')) {
+            console.log('[App] Detected local IP:', ip)
+            resolve(ip)
+            return
+          }
+        }
+        resolve(null)
+        return
+      }
+      const m = e.candidate.candidate.match(/(\d{1,3}\.){3}\d{1,3}/)
+      if (m) ips.add(m[0])
+    }
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(null))
+    setTimeout(() => { pc.close(); resolve(null) }, 3000)
+  })
+}
+
+// ── Derive subnet from IP (e.g. 192.168.2.45 → '192.168.2') ──────
+function ipToSubnet(ip) {
+  if (!ip) return null
+  const parts = ip.split('.')
+  return parts.length === 4 ? parts.slice(0, 3).join('.') : null
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 async function init() {
   console.log('[App] Initializing OfficeMesh Desktop')
@@ -35,6 +70,18 @@ async function init() {
   state.settings   = await loadSettings()
   state.myDeviceId = await getDeviceId()
   state.peers      = loadPeers()
+
+  // Auto-detect local IP and pre-fill subnet if not set
+  const detectedIP = await detectLocalIP()
+  if (detectedIP) {
+    state.myLocalIP = detectedIP
+    const detectedSubnet = ipToSubnet(detectedIP)
+    if (detectedSubnet && !state.settings.subnet) {
+      state.settings.subnet = detectedSubnet
+      await saveSettings(state.settings)
+      console.log('[App] Auto-detected subnet:', detectedSubnet)
+    }
+  }
 
   initTitlebar()
   initSidebar({ onPeerClick: handlePeerClick, onScanClick: handleScan })
@@ -103,7 +150,7 @@ export async function connectPresence(serverUrl) {
     socket.emit('register_peer', {
       deviceId:    state.myDeviceId,
       displayName: state.settings.displayName || 'Anonymous',
-      ip:          null,   // server will detect from socket
+      ip:          state.myLocalIP || null,
     })
     setTitlebarStatus('connected', 'Connected')
     // Refresh peer list after registering
@@ -220,7 +267,7 @@ async function handleSettingsSave(newSettings) {
     state.presenceSocket.emit('register_peer', {
       deviceId:    state.myDeviceId,
       displayName: state.settings.displayName || 'Anonymous',
-      ip:          null,
+      ip:          state.myLocalIP || null,
     })
   }
 }
