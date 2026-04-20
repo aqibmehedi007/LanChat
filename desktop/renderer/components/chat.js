@@ -20,7 +20,8 @@ let dataChannel    = null
 let isInitiator    = false
 let currentRoomId  = null
 
-// File receive state
+// Track saved file paths for the Open button
+const savedFilePaths = new Map() // fileId -> filePath
 const pendingFiles = new Map()
 const CHUNK_SIZE   = 16 * 1024
 
@@ -51,6 +52,22 @@ export function initChat() {
   fileInput.addEventListener('change', () => {
     Array.from(fileInput.files).forEach(sendFile)
     fileInput.value = ''
+  })
+
+  // Delegate click for file action buttons (Open / Show in folder)
+  chatMessages.addEventListener('click', e => {
+    const openBtn   = e.target.closest('.file-open-btn')
+    const folderBtn = e.target.closest('.file-folder-btn')
+    if (openBtn) {
+      const fileId = openBtn.dataset.fileId
+      const filePath = savedFilePaths.get(fileId)
+      if (filePath) window.electronAPI.openFile(filePath)
+    }
+    if (folderBtn) {
+      const fileId = folderBtn.dataset.fileId
+      const filePath = savedFilePaths.get(fileId)
+      if (filePath) window.electronAPI.showInFolder(filePath)
+    }
   })
 }
 
@@ -273,26 +290,56 @@ export async function sendFile(file) {
   const fileId = crypto.randomUUID()
   const buffer = await file.arrayBuffer()
   const bytes  = new Uint8Array(buffer)
+  const totalChunks = Math.ceil(bytes.length / CHUNK_SIZE)
 
   addFileBubble(file.name, file.size, 'sent', fileId)
   dataChannel.send(JSON.stringify({
-    type: 'file_start', fileId, name: file.name, size: file.size, mimeType: file.type
+    type: 'file_start', fileId, name: file.name, size: file.size, mimeType: file.type, totalChunks
   }))
 
   let chunkIndex = 0
   for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
+    // Wait for the DataChannel buffer to drain before sending more
+    await waitForBufferDrain(dataChannel)
+
     const slice  = bytes.slice(offset, offset + CHUNK_SIZE)
     const base64 = btoa(String.fromCharCode(...slice))
     dataChannel.send(JSON.stringify({ type: 'file_chunk', fileId, index: chunkIndex++, data: base64 }))
-    updateFileBubbleProgress(fileId, offset / bytes.length)
-    await new Promise(r => setTimeout(r, 0))
+    updateFileBubbleProgress(fileId, (offset + CHUNK_SIZE) / bytes.length)
   }
   dataChannel.send(JSON.stringify({ type: 'file_end', fileId }))
   updateFileBubbleProgress(fileId, 1)
+  // Sender can also open the file from their own disk
+  savedFilePaths.set(fileId, null) // sent files don't have a saved path
+}
+
+/**
+ * Wait until the DataChannel's bufferedAmount drops below threshold.
+ * This prevents overwhelming the channel and losing chunks.
+ */
+function waitForBufferDrain(channel) {
+  const BUFFER_THRESHOLD = 64 * 1024 // 64KB
+  if (channel.bufferedAmount < BUFFER_THRESHOLD) {
+    return Promise.resolve()
+  }
+  return new Promise(resolve => {
+    const check = () => {
+      if (channel.bufferedAmount < BUFFER_THRESHOLD) {
+        resolve()
+      } else {
+        setTimeout(check, 20)
+      }
+    }
+    check()
+  })
 }
 
 function handleFileStart(data) {
-  pendingFiles.set(data.fileId, { name: data.name, size: data.size, mimeType: data.mimeType, chunks: [], received: 0 })
+  pendingFiles.set(data.fileId, {
+    name: data.name, size: data.size, mimeType: data.mimeType,
+    totalChunks: data.totalChunks || Math.ceil(data.size / CHUNK_SIZE),
+    chunks: [], received: 0
+  })
   addFileBubble(data.name, data.size, 'received', data.fileId)
 }
 
@@ -301,17 +348,33 @@ function handleFileChunk(data) {
   if (!file) return
   file.chunks[data.index] = data.data
   file.received++
-  updateFileBubbleProgress(data.fileId, Math.min(file.received / Math.ceil(file.size / CHUNK_SIZE), 0.99))
+  updateFileBubbleProgress(data.fileId, Math.min(file.received / file.totalChunks, 0.99))
 }
 
 async function handleFileEnd(data) {
   const file = pendingFiles.get(data.fileId)
   if (!file) return
   pendingFiles.delete(data.fileId)
+
+  // Verify all chunks arrived
+  const missing = []
+  for (let i = 0; i < file.totalChunks; i++) {
+    if (!file.chunks[i]) missing.push(i)
+  }
+  if (missing.length > 0) {
+    addSystemMessage(`⚠ "${file.name}" is incomplete — ${missing.length} chunks missing`)
+    updateFileBubbleProgress(data.fileId, 1)
+    return
+  }
+
   updateFileBubbleProgress(data.fileId, 1)
   try {
-    const result = await window.electronAPI.saveFile(file.name, file.chunks.join(''))
-    if (result.success) addSystemMessage(`Saved "${file.name}" to Downloads`)
+    const combined = file.chunks.join('')
+    const result = await window.electronAPI.saveFile(file.name, combined)
+    if (result.success) {
+      savedFilePaths.set(data.fileId, result.path)
+      addSystemMessage(`Saved "${file.name}" to Downloads`)
+    }
   } catch (err) {
     addSystemMessage(`Failed to save "${file.name}": ` + err.message)
   }
@@ -330,6 +393,10 @@ function addFileBubble(name, size, direction, fileId) {
       </div>
     </div>
     <div class="file-progress"><div class="file-progress-fill" style="width:0%"></div></div>
+    <div class="file-actions hidden" data-actions-for="${fileId}">
+      <button class="file-open-btn" data-file-id="${fileId}">Open</button>
+      <button class="file-folder-btn" data-file-id="${fileId}">Show in folder</button>
+    </div>
     <span class="message-time">${formatTime(Date.now())}</span>`
   chatMessages.appendChild(el)
   scrollBottom()
@@ -338,6 +405,13 @@ function addFileBubble(name, size, direction, fileId) {
 function updateFileBubbleProgress(fileId, ratio) {
   const el = chatMessages.querySelector(`[data-file-id="${fileId}"] .file-progress-fill`)
   if (el) el.style.width = Math.round(ratio * 100) + '%'
+  // Show action buttons when complete
+  if (ratio >= 1) {
+    const actions = chatMessages.querySelector(`[data-actions-for="${fileId}"]`)
+    if (actions) actions.classList.remove('hidden')
+    const progress = chatMessages.querySelector(`[data-file-id="${fileId}"] .file-progress`)
+    if (progress) progress.classList.add('hidden')
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────

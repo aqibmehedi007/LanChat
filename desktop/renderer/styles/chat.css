@@ -321,3 +321,34 @@
   color: var(--text-muted);
   word-break: break-all;
 }
+
+
+/* File action buttons (Open / Show in folder) */
+.file-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.file-actions.hidden { display: none; }
+
+.file-open-btn,
+.file-folder-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.file-open-btn:hover {
+  background: var(--accent);
+  color: #1a1d2e;
+  border-color: var(--accent);
+}
+.file-folder-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}

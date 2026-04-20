@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File operations
   saveFile: (fileName, base64Data) =>
     ipcRenderer.invoke('file:save', fileName, base64Data),
+  openFile: (filePath) =>
+    ipcRenderer.invoke('file:open', filePath),
+  showInFolder: (filePath) =>
+    ipcRenderer.invoke('file:showInFolder', filePath),
 
   // Server management
   getServerStatus: () => ipcRenderer.invoke('server:status'),
