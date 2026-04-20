@@ -80,7 +80,7 @@ async function refreshServerStatus() {
 
 async function handleSave() {
   const displayName = document.getElementById('s-display-name').value.trim()
-  const subnet      = document.getElementById('s-subnet').value.trim() || '192.168.1'
+  const subnet      = document.getElementById('s-subnet').value.trim() || '192.168.2'
   const interval    = parseInt(document.getElementById('s-scan-interval').value, 10)
 
   if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(subnet)) {

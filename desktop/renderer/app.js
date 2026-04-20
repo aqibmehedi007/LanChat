@@ -246,7 +246,7 @@ async function handleScan() {
   toastText.textContent = 'Scanning network...'
 
   try {
-    const subnet = state.settings.subnet || '192.168.1'
+    const subnet = state.settings.subnet || '192.168.2'
     const result = await scanNetwork(subnet, {
       onProgress: (scanned, total) => {
         toastFill.style.width = Math.round((scanned / total) * 100) + '%'

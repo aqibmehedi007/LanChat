@@ -19,7 +19,7 @@ export async function loadSettings() {
     if (raw) return JSON.parse(raw)
   } catch { /* ignore */ }
 
-  return { displayName: '', subnet: '192.168.1', autoScanInterval: 30 }
+  return { displayName: '', subnet: '192.168.2', autoScanInterval: 30 }
 }
 
 export async function saveSettings(settings) {
